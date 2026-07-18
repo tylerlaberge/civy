@@ -1,2 +1,30 @@
+# Editor / OS
 .idea/
 .DS_Store
+.vscode/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# moon
+.moon/cache/
+.moon/docker/
+
+# Databases
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log

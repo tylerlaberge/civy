@@ -1,0 +1,41 @@
+# https://moonrepo.dev/docs/config/tasks
+# Shared task definitions inherited by every Node.js project in the workspace.
+# Individual projects may override or extend these in their own moon.yml.
+$schema: "https://moonrepo.dev/schemas/tasks.json"
+
+tasks:
+  lint:
+    command: "eslint ."
+    inputs:
+      - "@globs(sources)"
+      - "@globs(tests)"
+      - "/eslint.config.js"
+
+  typecheck:
+    command: "tsc --noEmit"
+    inputs:
+      - "@globs(sources)"
+      - "@globs(tests)"
+      - "tsconfig.json"
+      - "/tsconfig.base.json"
+
+  test:
+    command: "vitest run"
+    inputs:
+      - "@globs(sources)"
+      - "@globs(tests)"
+
+  build:
+    command: "tsc --build"
+    inputs:
+      - "@globs(sources)"
+      - "tsconfig.json"
+      - "/tsconfig.base.json"
+    outputs:
+      - "dist"
+
+  dev:
+    command: "echo 'No dev task configured for this project'"
+    local: true
+    options:
+      cache: false

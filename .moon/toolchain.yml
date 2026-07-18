@@ -1,0 +1,10 @@
+# https://moonrepo.dev/docs/config/toolchain
+$schema: "https://moonrepo.dev/schemas/toolchain.json"
+
+# moon owns task running; pnpm owns dependency linking. Versions are pinned in
+# .prototools (the single source of truth), so they are not duplicated here.
+node:
+  packageManager: "pnpm"
+  # Keep node/pnpm versions driven by .prototools rather than moon-managed.
+  inferTasksFromScripts: false
+  syncProjectWorkspaceDependencies: true
