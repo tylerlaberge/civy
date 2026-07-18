@@ -5,6 +5,7 @@ $schema: "https://moonrepo.dev/schemas/toolchain.json"
 # .prototools (the single source of truth), so they are not duplicated here.
 node:
   packageManager: "pnpm"
-  # Keep node/pnpm versions driven by .prototools rather than moon-managed.
+  # Don't auto-generate moon tasks from package.json scripts; tasks are defined
+  # explicitly in .moon/tasks/*.yml and per-project moon.yml.
   inferTasksFromScripts: false
   syncProjectWorkspaceDependencies: true

@@ -3,6 +3,14 @@
 # Individual projects may override or extend these in their own moon.yml.
 $schema: "https://moonrepo.dev/schemas/tasks.json"
 
+# File groups the shared tasks glob over; projects may override per their layout.
+fileGroups:
+  sources:
+    - "src/**/*"
+  tests:
+    - "tests/**/*"
+    - "src/**/*.{test,spec}.{ts,tsx}"
+
 tasks:
   lint:
     command: "eslint ."
@@ -25,8 +33,10 @@ tasks:
       - "@globs(sources)"
       - "@globs(tests)"
 
+  # App projects override this (e.g. `astro build`, `nest build`); the default
+  # emits compiled TypeScript into dist/ for library packages.
   build:
-    command: "tsc --build"
+    command: "tsc --outDir dist"
     inputs:
       - "@globs(sources)"
       - "tsconfig.json"
@@ -34,8 +44,6 @@ tasks:
     outputs:
       - "dist"
 
+  # Named `dev`, so moon infers the persistent `server` preset (local, uncached).
   dev:
     command: "echo 'No dev task configured for this project'"
-    local: true
-    options:
-      cache: false
