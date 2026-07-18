@@ -8,6 +8,8 @@
     "moduleDetection": "force",
     "resolveJsonModule": true,
     "isolatedModules": true,
+    // With NodeNext + verbatimModuleSyntax, every package must declare
+    // "type": "module" in its package.json or tsc fails with TS1287.
     "verbatimModuleSyntax": true,
 
     "strict": true,

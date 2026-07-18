@@ -18,6 +18,8 @@ tasks:
     inputs:
       - "@globs(sources)"
       - "@globs(tests)"
+      - "package.json"
+      - "tsconfig.json"
       - "/biome.json"
 
   typecheck:
