@@ -1,11 +1,8 @@
 # https://moonrepo.dev/docs/config/toolchain
 $schema: "https://moonrepo.dev/schemas/toolchain.json"
 
-# moon owns task running; pnpm owns dependency linking. Versions are pinned in
-# .prototools (the single source of truth), so they are not duplicated here.
-node:
-  packageManager: "pnpm"
-  # Don't auto-generate moon tasks from package.json scripts; tasks are defined
-  # explicitly in .moon/tasks/*.yml and per-project moon.yml.
-  inferTasksFromScripts: false
+# moon owns task running; bun owns dependency linking (and is the runtime).
+# Tool versions are pinned in .prototools (the single source of truth).
+bun:
+  # Keep bun workspace deps in sync with each project's package.json.
   syncProjectWorkspaceDependencies: true

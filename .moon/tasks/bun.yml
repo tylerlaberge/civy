@@ -1,5 +1,5 @@
 # https://moonrepo.dev/docs/config/tasks
-# Shared task definitions inherited by every Node.js project in the workspace.
+# Shared task definitions inherited by every Bun project in the workspace.
 # Individual projects may override or extend these in their own moon.yml.
 $schema: "https://moonrepo.dev/schemas/tasks.json"
 
@@ -12,12 +12,13 @@ fileGroups:
     - "src/**/*.{test,spec}.{ts,tsx}"
 
 tasks:
+  # Biome handles both linting and format-checking in one pass.
   lint:
-    command: "eslint ."
+    command: "biome check ."
     inputs:
       - "@globs(sources)"
       - "@globs(tests)"
-      - "/eslint.config.js"
+      - "/biome.json"
 
   typecheck:
     command: "tsc --noEmit"

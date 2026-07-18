@@ -1,9 +1,0 @@
-**/dist/
-**/build/
-**/node_modules/
-.moon/cache/
-pnpm-lock.yaml
-
-# Not code; leave prose/skill authoring untouched.
-docs/
-.claude/

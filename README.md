@@ -12,11 +12,12 @@ See [`docs/PRD.md`](docs/PRD.md) for the full product model.
 
 ## Architecture
 
-Civy is a [moonrepo](https://moonrepo.dev)-managed TypeScript monorepo:
+Civy is a [moonrepo](https://moonrepo.dev)-managed TypeScript monorepo (Bun for
+package management and runtime, Biome for lint + format):
 
 ```
 civy/
-├── .prototools           # pinned toolchain (node, pnpm, moon)
+├── .prototools           # pinned toolchain (node, bun, moon)
 ├── .moon/                # moon workspace + task configuration
 ├── apps/
 │   ├── web/              # Astro + React islands (server-rendered UI)
@@ -34,11 +35,11 @@ civy/
 Prerequisites: [proto](https://moonrepo.dev/proto) (installs the pinned toolchain).
 
 ```bash
-# Install the pinned node, pnpm, and moon versions (from .prototools)
+# Install the pinned node, bun, and moon versions (from .prototools)
 proto use
 
 # Install workspace dependencies
-pnpm install
+bun install
 
 # Lint + typecheck + test + build across the workspace
 moon check --all

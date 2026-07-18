@@ -1,10 +1,9 @@
 {
-  // Root config for editor tooling and root-level files (e.g. eslint.config.js).
+  // Root config anchoring editor defaults; it compiles nothing itself.
   // Each project has its own tsconfig.json that extends ./tsconfig.base.json.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "noEmit": true,
-    "allowJs": true
+    "noEmit": true
   },
-  "include": ["eslint.config.js"]
+  "files": []
 }
