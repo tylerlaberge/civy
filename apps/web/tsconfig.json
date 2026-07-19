@@ -12,6 +12,6 @@
     "noEmit": true,
     "types": ["astro/client", "@testing-library/jest-dom"]
   },
-  "include": ["src", "astro.config.mjs", "vitest.config.ts"],
+  "include": ["src", "astro.config.mjs", "vitest.config.ts", "vitest.setup.ts"],
   "exclude": ["dist"]
 }

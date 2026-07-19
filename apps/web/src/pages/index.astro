@@ -1,11 +1,13 @@
 ---
+import { API_URL } from "astro:env/server";
 import { Counter } from "../components/Counter.tsx";
 import "../styles/global.css";
 
-// Rendered on the server for every request. PUBLIC_API_URL is baked in at build
-// time; reading it here demonstrates the environment-config pattern the rest of
-// the app will follow when it starts talking to apps/api.
-const apiUrl = import.meta.env.PUBLIC_API_URL;
+// Rendered on the server for every request. API_URL comes from the typed
+// astro:env schema (see astro.config.mjs); as a server-context var it is read
+// at request time, demonstrating the environment-config pattern the rest of
+// the app follows when it starts talking to apps/api.
+const apiUrl = API_URL;
 ---
 
 <!doctype html>

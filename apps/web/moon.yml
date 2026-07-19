@@ -25,7 +25,6 @@ tasks:
     command: "astro build"
     inputs:
       - "@globs(sources)"
-      - "astro.config.mjs"
       - "tsconfig.json"
       - "/tsconfig.base.json"
     outputs:
