@@ -1,0 +1,35 @@
+# https://moonrepo.dev/docs/config/project
+$schema: "https://moonrepo.dev/schemas/project.json"
+
+type: "application"
+language: "typescript"
+
+# Astro discovers files under src/ and the config at the project root; widen the
+# inherited source group so lint/typecheck see .astro pages and config files too.
+fileGroups:
+  sources:
+    - "src/**/*"
+    - "astro.config.mjs"
+
+tasks:
+  # Astro's own type checker understands .astro files (plain `tsc` does not).
+  typecheck:
+    command: "astro check"
+    inputs:
+      - "@globs(sources)"
+      - "@globs(tests)"
+      - "tsconfig.json"
+      - "/tsconfig.base.json"
+
+  build:
+    command: "astro build"
+    inputs:
+      - "@globs(sources)"
+      - "astro.config.mjs"
+      - "tsconfig.json"
+      - "/tsconfig.base.json"
+    outputs:
+      - "dist"
+
+  dev:
+    command: "astro dev"

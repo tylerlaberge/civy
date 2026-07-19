@@ -1,0 +1,30 @@
+---
+import { Counter } from "../components/Counter.tsx";
+import "../styles/global.css";
+
+// Rendered on the server for every request. PUBLIC_API_URL is baked in at build
+// time; reading it here demonstrates the environment-config pattern the rest of
+// the app will follow when it starts talking to apps/api.
+const apiUrl = import.meta.env.PUBLIC_API_URL;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Civy</title>
+  </head>
+  <body class="min-h-screen bg-slate-50 text-slate-900">
+    <main class="mx-auto flex max-w-xl flex-col items-start gap-4 px-6 py-16">
+      <h1 class="text-4xl font-bold tracking-tight">Civy</h1>
+      <p class="text-lg text-slate-600">Read any legislation. Comment where you live.</p>
+      <p class="text-sm text-slate-500">
+        API base URL: <code class="rounded bg-slate-200 px-1.5 py-0.5 font-mono">{apiUrl}</code>
+      </p>
+
+      <!-- client:load hydrates the island so the counter is interactive. -->
+      <Counter client:load />
+    </main>
+  </body>
+</html>

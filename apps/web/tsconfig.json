@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Astro + React use bundler resolution and JSX, which diverge from the
+    // NodeNext defaults in the base config; override only what Astro requires.
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "verbatimModuleSyntax": false,
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "types": ["astro/client", "@testing-library/jest-dom"]
+  },
+  "include": ["src", "astro.config.mjs", "vitest.config.ts"],
+  "exclude": ["dist"]
+}
