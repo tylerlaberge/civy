@@ -1,0 +1,9 @@
+{
+  // Root config anchoring editor defaults; it compiles nothing itself.
+  // Each project has its own tsconfig.json that extends ./tsconfig.base.json.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "files": []
+}

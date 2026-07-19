@@ -1,0 +1,11 @@
+# https://moonrepo.dev/docs/config/workspace
+$schema: "https://moonrepo.dev/schemas/workspace.json"
+
+# Projects are discovered by glob; new apps/packages are picked up automatically.
+projects:
+  - "apps/*"
+  - "packages/*"
+
+vcs:
+  manager: "git"
+  defaultBranch: "main"

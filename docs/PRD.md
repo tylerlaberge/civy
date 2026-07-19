@@ -98,11 +98,11 @@ Example: a Maine resident can comment on Maine and federal bills, and can read �
 
 ### Monorepo
 
-Managed with **moonrepo**: `moon` for tasks/orchestration, `proto` (`.prototools`) for toolchain version pinning.
+Managed with **moonrepo**: `moon` for tasks/orchestration, `proto` (`.prototools`) for toolchain version pinning. **Bun** is the package manager and runtime; **Biome** provides linting and formatting.
 
 ```
 civy/
-├── .prototools           # pinned toolchain (node, moon, etc.)
+├── .prototools           # pinned toolchain (node, bun, moon)
 ├── .moon/                # moon workspace config
 ├── .devcontainer/        # sandboxed dev environment (see §7)
 ├── apps/
