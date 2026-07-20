@@ -11,6 +11,9 @@ dist/
 build/
 *.tsbuildinfo
 
+# Astro generated types / cache
+.astro/
+
 # moon
 .moon/cache/
 .moon/docker/
