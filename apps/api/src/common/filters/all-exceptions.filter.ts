@@ -1,3 +1,4 @@
+import { STATUS_CODES } from "node:http";
 import {
   type ArgumentsHost,
   Catch,
@@ -35,7 +36,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const statusCode =
       exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
 
-    const { error, message } = this.describe(exception);
+    const { error, message } = this.describe(exception, statusCode);
 
     if (statusCode >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.error(
@@ -55,24 +56,31 @@ export class AllExceptionsFilter implements ExceptionFilter {
     response.status(statusCode).json(body);
   }
 
-  private describe(exception: unknown): { error: string; message: string | string[] } {
+  private describe(
+    exception: unknown,
+    statusCode: number,
+  ): { error: string; message: string | string[] } {
+    // Standard HTTP reason phrase for the status ("Not Found", "Bad Request"),
+    // so `error` is consistent regardless of how the exception was constructed.
+    const reason = STATUS_CODES[statusCode] ?? "Error";
+
     if (exception instanceof HttpException) {
       const responseBody = exception.getResponse();
       if (typeof responseBody === "string") {
-        return { error: exception.name, message: responseBody };
+        return { error: reason, message: responseBody };
       }
       const { error, message } = responseBody as {
         error?: string;
         message?: string | string[];
       };
       return {
-        error: error ?? exception.name,
+        error: error ?? reason,
         message: message ?? exception.message,
       };
     }
 
     return {
-      error: "Internal Server Error",
+      error: reason,
       message: "An unexpected error occurred.",
     };
   }

@@ -1,28 +1,25 @@
 import type { INestApplication } from "@nestjs/common";
-import { ValidationPipe } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
-import { AllExceptionsFilter } from "../common/filters/all-exceptions.filter";
+import { configureApp } from "../app.setup";
 
+// Matches the CORS_ORIGIN default in src/config/env.validation.ts, which
+// configureApp reads from ConfigService.
 const CORS_ORIGIN = "http://localhost:4321";
 
 describe("Health (e2e)", () => {
   let app: INestApplication;
 
   beforeAll(async () => {
-    // Mirror main.ts so the tests exercise the real global config.
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
     app = moduleRef.createNestApplication();
-    app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
-    );
-    app.useGlobalFilters(new AllExceptionsFilter());
-    app.enableCors({ origin: CORS_ORIGIN, credentials: true });
+    // Same setup main.ts applies, so tests exercise the real global config.
+    configureApp(app);
     await app.init();
   });
 
@@ -56,5 +53,14 @@ describe("Health (e2e)", () => {
     const response = await request(app.getHttpServer()).get("/health").set("Origin", CORS_ORIGIN);
 
     expect(response.headers["access-control-allow-origin"]).toBe(CORS_ORIGIN);
+  });
+
+  it("does not echo a disallowed CORS origin", async () => {
+    const response = await request(app.getHttpServer())
+      .get("/health")
+      .set("Origin", "http://evil.example");
+
+    // A single configured origin must not be reflected back for other origins.
+    expect(response.headers["access-control-allow-origin"]).not.toBe("http://evil.example");
   });
 });
