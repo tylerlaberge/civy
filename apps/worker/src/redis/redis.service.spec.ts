@@ -83,4 +83,40 @@ describe("RedisService", () => {
 
     expect(quitMock).toHaveBeenCalledOnce();
   });
+
+  describe("retryStrategy", () => {
+    // Pull the strategy ioredis was constructed with so we can exercise it directly.
+    function captureRetryStrategy(): (attempt: number) => number | null {
+      const [, options] = RedisMock.mock.calls[0] as unknown as [
+        string,
+        { retryStrategy: (attempt: number) => number | null },
+      ];
+      return options.retryStrategy;
+    }
+
+    it("gives up during boot so an unreachable Redis fails fast", () => {
+      new RedisService({ getOrThrow: () => "redis://localhost:6379" } as unknown as ConfigService);
+      const retryStrategy = captureRetryStrategy();
+
+      // Before the first successful connect: bounded, then null (ends reconnection).
+      expect(retryStrategy(1)).toBeGreaterThan(0);
+      expect(retryStrategy(100)).toBeNull();
+    });
+
+    it("reconnects indefinitely (capped) after the first successful connect", async () => {
+      vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+      const service = new RedisService({
+        getOrThrow: () => "redis://localhost:6379",
+      } as unknown as ConfigService);
+      const retryStrategy = captureRetryStrategy();
+
+      await service.onModuleInit();
+
+      // Post-connect: never gives up, and the backoff is capped at 2000ms.
+      expect(retryStrategy(100)).toBe(2000);
+      expect(retryStrategy(100000)).toBe(2000);
+
+      await service.onModuleDestroy();
+    });
+  });
 });

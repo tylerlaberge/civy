@@ -5,9 +5,13 @@ import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@ne
 import { ConfigService } from "@nestjs/config";
 import { Redis } from "ioredis";
 
-// Stop reconnecting after this many failed attempts so a missing/unreachable
-// Redis surfaces as a boot error instead of an indefinite hang.
-const MAX_CONNECT_ATTEMPTS = 5;
+// During the initial boot connect, give up after this many failed attempts so a
+// missing/unreachable Redis surfaces as a fatal boot error instead of hanging.
+// After the first successful connect, reconnection is unbounded (see below).
+const MAX_BOOT_CONNECT_ATTEMPTS = 5;
+
+// Ceiling for the exponential-ish backoff between steady-state reconnect attempts.
+const MAX_RECONNECT_DELAY_MS = 2000;
 
 /**
  * Owns the shared ioredis connection. BullMQ (a later story) builds on ioredis
@@ -19,6 +23,9 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
   private readonly url: string;
   private readonly client: Redis;
+  // Flips true after the first successful connect, switching the retry policy
+  // from bounded (fail-fast boot) to unbounded (self-healing runtime).
+  private connectedOnce = false;
 
   constructor(config: ConfigService) {
     this.url = config.getOrThrow<string>("REDIS_URL");
@@ -27,9 +34,16 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       lazyConnect: true,
       // Required by BullMQ; also keeps commands from erroring mid-retry.
       maxRetriesPerRequest: null,
-      // Bounded retries: returning null ends reconnection and rejects connect().
-      retryStrategy: (attempt) =>
-        attempt > MAX_CONNECT_ATTEMPTS ? null : Math.min(attempt * 200, 2000),
+      retryStrategy: (attempt) => {
+        // Runtime: once we've connected, retry forever so a transient Redis
+        // outage self-heals rather than leaving a zombie worker with a dead client.
+        if (this.connectedOnce) {
+          return Math.min(attempt * 200, MAX_RECONNECT_DELAY_MS);
+        }
+        // Boot: bounded retries — returning null ends reconnection and rejects
+        // connect(), so an unreachable Redis fails fast (fatal) instead of hanging.
+        return attempt > MAX_BOOT_CONNECT_ATTEMPTS ? null : attempt * 200;
+      },
     });
 
     // Without an error listener, ioredis logs "Unhandled error event" (and a
@@ -43,6 +57,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit(): Promise<void> {
     try {
       await this.client.connect();
+      this.connectedOnce = true;
       this.logger.log(`Connected to Redis at ${this.redactedUrl()}`);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
