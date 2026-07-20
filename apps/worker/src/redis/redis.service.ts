@@ -13,6 +13,11 @@ const MAX_BOOT_CONNECT_ATTEMPTS = 5;
 // Ceiling for the exponential-ish backoff between steady-state reconnect attempts.
 const MAX_RECONNECT_DELAY_MS = 2000;
 
+// How long to wait for a graceful QUIT on shutdown before forcing the socket
+// down. With maxRetriesPerRequest: null, a QUIT issued while Redis is unreachable
+// sits in the offline queue forever, so shutdown must not wait on it unbounded.
+const SHUTDOWN_QUIT_TIMEOUT_MS = 2000;
+
 /**
  * Owns the shared ioredis connection. BullMQ (a later story) builds on ioredis
  * with `maxRetriesPerRequest: null` and a single shared client, so this is the
@@ -47,10 +52,13 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     });
 
     // Without an error listener, ioredis logs "Unhandled error event" (and a
-    // connection error could crash the process). Surface transient errors as
-    // warnings; boot failures are still handled by onModuleInit rejecting.
+    // connection error could crash the process). Only warn about genuine
+    // steady-state blips: pre-connect errors are surfaced by onModuleInit's
+    // throw, so warning on them too would just spam misleading lines before the fatal.
     this.client.on("error", (error) => {
-      this.logger.warn(`Redis connection error: ${error.message}`);
+      if (this.connectedOnce) {
+        this.logger.warn(`Redis connection error: ${error.message}`);
+      }
     });
   }
 
@@ -66,7 +74,25 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
-    await this.client.quit();
+    // Try a graceful QUIT, but never let shutdown hang: if Redis is unreachable
+    // the QUIT sits unresolved in the offline queue, so race it against a timeout
+    // and always force the socket down afterwards. quit() also rejects if the
+    // connection is already closed — swallow that and fall through to disconnect().
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, SHUTDOWN_QUIT_TIMEOUT_MS);
+    });
+    try {
+      await Promise.race([this.client.quit(), timeout]);
+    } catch {
+      // Connection already closed — nothing more to gracefully close.
+    } finally {
+      if (timer) {
+        clearTimeout(timer);
+      }
+      // Synchronous, forced teardown; a no-op if the client already closed.
+      this.client.disconnect();
+    }
   }
 
   /** The shared connection, for BullMQ queues/workers in later stories. */
