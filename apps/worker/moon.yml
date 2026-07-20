@@ -1,0 +1,29 @@
+# https://moonrepo.dev/docs/config/project
+$schema: "https://moonrepo.dev/schemas/project.json"
+
+type: "application"
+language: "typescript"
+
+tasks:
+  # NestJS compiles via its CLI (applies nest-cli.json + tsconfig.build.json);
+  # plain `tsc` from the inherited build task would miss that wiring.
+  build:
+    command: "nest build"
+    # Don't inherit the base task's `--outDir dist` args; nest build rejects them.
+    options:
+      mergeArgs: "replace"
+    inputs:
+      - "@globs(sources)"
+      - "tsconfig.json"
+      - "tsconfig.build.json"
+      - "nest-cli.json"
+      - "/tsconfig.base.json"
+    outputs:
+      - "dist"
+
+  # Headless process: nest start runs the application context (no HTTP listener).
+  dev:
+    command: "nest start --watch"
+
+  # lint / typecheck / test are inherited from .moon/tasks/bun.yml
+  # (biome check . / tsc --noEmit / vitest run).

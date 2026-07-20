@@ -1,0 +1,10 @@
+{
+  // Used by `nest build`: compile only src/ (no test/vitest files), rooted at
+  // src/ so the entrypoint emits to dist/main.js (matching the `start` script).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src"
+  },
+  "include": ["src"],
+  "exclude": ["dist", "src/**/*.{test,spec}.ts"]
+}

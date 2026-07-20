@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // NestJS relies on decorators + reflect-metadata, which are simplest under
+    // CommonJS; override the NodeNext/ESM defaults from the base config for the
+    // Nest toolchain (this is the same override-what-the-toolchain-needs pattern
+    // apps/web uses for Astro).
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "verbatimModuleSyntax": false,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "outDir": "dist",
+    "types": ["node"]
+  },
+  "include": ["src", "vitest.config.ts", "vitest.setup.ts"],
+  "exclude": ["dist"]
+}
