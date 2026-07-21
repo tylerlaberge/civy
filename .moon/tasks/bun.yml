@@ -36,6 +36,10 @@ tasks:
 
   test:
     command: "vitest run"
+    # Build workspace dependencies first so runtime (value) imports of a
+    # dependency package resolve to its emitted dist/ during the test run.
+    deps:
+      - "^:build"
     inputs:
       - "@globs(sources)"
       - "@globs(tests)"

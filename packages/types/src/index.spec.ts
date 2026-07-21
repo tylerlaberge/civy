@@ -9,7 +9,7 @@ import type {
   User,
   UsStateCode,
 } from "./index.js";
-import { US_STATE_CODES } from "./index.js";
+import { JURISDICTION_IDS, US_STATE_CODES } from "./index.js";
 
 describe("jurisdiction registry", () => {
   it("enables Maine at launch", () => {
@@ -25,6 +25,10 @@ describe("jurisdiction registry", () => {
   it("accepts federal and state codes as a JurisdictionId", () => {
     expectTypeOf<"federal">().toMatchTypeOf<JurisdictionId>();
     expectTypeOf<"us-me">().toMatchTypeOf<JurisdictionId>();
+  });
+
+  it("lists federal plus every registry state code as JURISDICTION_IDS", () => {
+    expect(JURISDICTION_IDS).toEqual(["federal", ...US_STATE_CODES]);
   });
 
   it("models a jurisdiction with its chambers", () => {

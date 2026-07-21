@@ -13,6 +13,17 @@ export type UsStateCode = (typeof US_STATE_CODES)[number];
 /** The identifier for a jurisdiction: federal, or a specific US state. */
 export type JurisdictionId = "federal" | UsStateCode;
 
+/**
+ * The jurisdictions Civy operates on: `federal` plus every code in the state
+ * registry. This is the single source of truth — derived from `US_STATE_CODES`,
+ * so enabling a state stays a one-line change to the registry and this list
+ * follows automatically. Apps re-export it rather than maintaining their own.
+ */
+export const JURISDICTION_IDS = [
+  "federal",
+  ...US_STATE_CODES,
+] as const satisfies readonly JurisdictionId[];
+
 /** Which legislative body a bill originates in. */
 export type Chamber = "house" | "senate";
 

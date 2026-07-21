@@ -1,14 +1,14 @@
-import type { JurisdictionId } from "@civy/types";
+import { JURISDICTION_IDS as SHARED_JURISDICTION_IDS } from "@civy/types";
 import { describe, expect, it } from "vitest";
-import { SUPPORTED_JURISDICTIONS } from "./jurisdictions";
+import { JURISDICTION_IDS } from "./jurisdictions";
 
-describe("SUPPORTED_JURISDICTIONS", () => {
-  it("always includes federal", () => {
-    const federal: JurisdictionId = "federal";
-    expect(SUPPORTED_JURISDICTIONS).toContain(federal);
+describe("api jurisdictions", () => {
+  it("surfaces the shared jurisdiction registry", () => {
+    expect(JURISDICTION_IDS).toEqual(SHARED_JURISDICTION_IDS);
   });
 
-  it("includes Maine at launch", () => {
-    expect(SUPPORTED_JURISDICTIONS).toContain("us-me");
+  it("includes federal and Maine", () => {
+    expect(JURISDICTION_IDS).toContain("federal");
+    expect(JURISDICTION_IDS).toContain("us-me");
   });
 });
