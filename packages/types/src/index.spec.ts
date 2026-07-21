@@ -23,9 +23,8 @@ describe("jurisdiction registry", () => {
   });
 
   it("accepts federal and state codes as a JurisdictionId", () => {
-    const federal = "federal" satisfies JurisdictionId;
-    const maine = "us-me" satisfies JurisdictionId;
-    expect([federal, maine]).toEqual(["federal", "us-me"]);
+    expectTypeOf<"federal">().toMatchTypeOf<JurisdictionId>();
+    expectTypeOf<"us-me">().toMatchTypeOf<JurisdictionId>();
   });
 
   it("models a jurisdiction with its chambers", () => {

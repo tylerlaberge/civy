@@ -12,8 +12,8 @@
   },
   "dependencies": {
     "@astrojs/node": "^9.4.4",
-    "@civy/types": "workspace:*",
     "@astrojs/react": "^4.4.1",
+    "@civy/types": "workspace:*",
     "@tailwindcss/vite": "^4.1.14",
     "astro": "^5.15.0",
     "react": "^19.2.0",
