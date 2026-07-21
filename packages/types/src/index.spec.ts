@@ -28,7 +28,9 @@ describe("jurisdiction registry", () => {
   });
 
   it("lists federal plus every registry state code as JURISDICTION_IDS", () => {
-    expect(JURISDICTION_IDS).toEqual(["federal", ...US_STATE_CODES]);
+    // Asserted against explicit literals, not re-derived from US_STATE_CODES —
+    // spreading the registry here would make this pass by construction.
+    expect(JURISDICTION_IDS).toEqual(["federal", "us-me"]);
   });
 
   it("models a jurisdiction with its chambers", () => {
@@ -57,15 +59,21 @@ describe("domain model shapes", () => {
       title: "An Act To Do Something",
       chamber: "house",
       status: "in_committee",
+      sponsors: [sponsor],
+      statusHistory: [history, { status: "in_committee", occurredAt: "2026-01-03T00:00:00.000Z" }],
       sourceUrl: "https://legislature.maine.gov/LD1234",
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-03T00:00:00.000Z",
     };
 
     expectTypeOf(bill.jurisdictionId).toEqualTypeOf<JurisdictionId>();
-    expect(sponsor.isPrimary).toBe(true);
-    expect(history.status).toBe("introduced");
     expect(bill.identifier).toBe("LD 1234");
+    // Sponsors and history hang off the bill, so a bill detail view (PRD §4.3)
+    // is expressible from the domain model alone.
+    expect(bill.sponsors[0]?.isPrimary).toBe(true);
+    expect(bill.statusHistory.map((entry) => entry.status)).toEqual(["introduced", "in_committee"]);
+    // Current status is the tip of the timeline.
+    expect(bill.statusHistory.at(-1)?.status).toBe(bill.status);
   });
 
   it("models a user whose home state drives comment rights", () => {

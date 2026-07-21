@@ -58,7 +58,15 @@ export interface Bill {
    */
   summary?: string;
   chamber: Chamber;
+  /** The bill's current position in the process; the tip of `statusHistory`. */
   status: BillStatus;
+  /** Legislators sponsoring the bill; empty when the source lists none. */
+  sponsors: Sponsor[];
+  /**
+   * The bill's status timeline, oldest first. Append-only and deduplicated by
+   * ingestion, so re-running a run never grows or reorders it.
+   */
+  statusHistory: BillStatusHistoryEntry[];
   /** Link to the full text on the official source. */
   sourceUrl: string;
   /** Timestamps in ISO 8601. */
