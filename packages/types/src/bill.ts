@@ -49,8 +49,14 @@ export interface Bill {
   /** Human-facing bill number, e.g. "LD 1234" or "H.R. 5678". */
   identifier: string;
   title: string;
-  /** Summary/abstract; may be absent before the source publishes one. */
-  summary: string | null;
+  /**
+   * Summary/abstract; omitted until the source publishes one.
+   *
+   * Absent-value convention for the domain model: use optional (`?`) for values
+   * that may simply not be present yet; reserve `| null` for a null that is
+   * itself a meaningful, always-present value (see `Comment.parentId`).
+   */
+  summary?: string;
   chamber: Chamber;
   status: BillStatus;
   /** Link to the full text on the official source. */

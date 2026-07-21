@@ -9,9 +9,14 @@ export interface Comment {
   billId: string;
   authorId: string;
   body: string;
-  /** The comment this replies to, or `null` for a top-level comment. */
+  /**
+   * The comment this replies to, or `null` for a top-level comment. Stays
+   * `| null` (not optional): every comment has a definite threading state, and
+   * `null` is a meaningful value ("top-level"), not an absent one — unlike
+   * `deletedAt`, whose absence just means "not deleted".
+   */
   parentId: string | null;
   createdAt: string;
-  /** When the comment was deleted, or `null` if it is still live. */
-  deletedAt: string | null;
+  /** When the comment was soft-deleted; omitted while the comment is live. */
+  deletedAt?: string;
 }

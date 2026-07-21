@@ -11,9 +11,10 @@
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "types": ["astro/client", "@testing-library/jest-dom"],
-    // Dev/typecheck consume @civy/types straight from source (no build step);
-    // the workspace dependency still gives moon the build-graph edge. Imports
-    // are type-only, so nothing resolves this at runtime.
+    // Typecheck consumes @civy/types straight from source (no build step); a
+    // matching Vite alias in astro.config.mjs points the bundler at the same
+    // source, so typecheck and runtime resolution stay aligned. The workspace
+    // dependency still gives moon the build-graph edge.
     "paths": {
       "@civy/types": ["../../packages/types/src/index"]
     }

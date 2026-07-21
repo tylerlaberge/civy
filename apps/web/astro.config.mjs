@@ -1,4 +1,5 @@
 // @ts-check
+import { fileURLToPath } from "node:url";
 import node from "@astrojs/node";
 import react from "@astrojs/react";
 import tailwindcss from "@tailwindcss/vite";
@@ -28,5 +29,15 @@ export default defineConfig({
   },
   vite: {
     plugins: [tailwindcss()],
+    resolve: {
+      // Resolve @civy/types to its source, matching the tsconfig `paths` alias.
+      // Without this the bundler would resolve the workspace symlink to dist/
+      // while typecheck reads source — harmless while imports are type-only, but
+      // a runtime import (e.g. US_STATE_CODES) could then read a stale dist/.
+      // Aligning both on source removes that drift.
+      alias: {
+        "@civy/types": fileURLToPath(new URL("../../packages/types/src/index.ts", import.meta.url)),
+      },
+    },
   },
 });

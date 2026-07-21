@@ -51,7 +51,6 @@ describe("domain model shapes", () => {
       externalId: "ocd-bill/abc",
       identifier: "LD 1234",
       title: "An Act To Do Something",
-      summary: null,
       chamber: "house",
       status: "in_committee",
       sourceUrl: "https://legislature.maine.gov/LD1234",
@@ -86,7 +85,6 @@ describe("domain model shapes", () => {
       body: "Top-level comment",
       parentId: null,
       createdAt: "2026-01-04T00:00:00.000Z",
-      deletedAt: null,
     };
     const reply: Comment = {
       ...top,

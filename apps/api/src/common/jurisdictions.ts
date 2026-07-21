@@ -9,6 +9,10 @@ import type { JurisdictionId } from "@civy/types";
  * exist in `@civy/types` before the API serves it, so adding a code to
  * `US_STATE_CODES` must not force this list to claim readiness. This list is
  * maintained by hand as jurisdictions actually come online.
+ *
+ * This intentionally parallels — but stays independent of — the worker's
+ * `INGESTED_JURISDICTIONS`. They coincide today; keep them separate so serving
+ * and ingestion can diverge as each rolls out.
  */
 export const SUPPORTED_JURISDICTIONS = [
   "federal",

@@ -8,6 +8,10 @@ import type { JurisdictionId } from "@civy/types";
  * exist in `@civy/types` before an adapter ingests it, so adding a code to
  * `US_STATE_CODES` must not force this list to claim readiness. Enabling a state
  * means adding it here alongside its adapter entry, by hand.
+ *
+ * This intentionally parallels — but stays independent of — the API's
+ * `SUPPORTED_JURISDICTIONS`. They coincide today; keep them separate so serving
+ * and ingestion can diverge as each rolls out.
  */
 export const INGESTED_JURISDICTIONS = [
   "federal",
