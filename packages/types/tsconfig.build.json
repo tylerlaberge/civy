@@ -1,0 +1,12 @@
+{
+  // Used by `build`: compile only src/ (no test/vitest files), rooted at src/
+  // so declarations emit to dist/index.d.ts (matching package.json `types`).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src"
+  },
+  "include": ["src"],
+  // TypeScript's glob exclude does not expand `{test,spec}` braces, so the two
+  // suffixes are listed separately to keep test files out of dist/.
+  "exclude": ["dist", "src/**/*.test.ts", "src/**/*.spec.ts"]
+}

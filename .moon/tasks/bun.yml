@@ -24,6 +24,10 @@ tasks:
 
   typecheck:
     command: "tsc --noEmit"
+    # Build workspace dependencies first so their emitted declarations exist for
+    # type resolution (e.g. apps resolving @civy/types via node_modules → dist).
+    deps:
+      - "^:build"
     inputs:
       - "@globs(sources)"
       - "@globs(tests)"
@@ -40,6 +44,10 @@ tasks:
   # emits compiled TypeScript into dist/ for library packages.
   build:
     command: "tsc --outDir dist"
+    # Build workspace dependencies first (e.g. an app's build resolves
+    # @civy/types via node_modules → the package's dist declarations).
+    deps:
+      - "^:build"
     inputs:
       - "@globs(sources)"
       - "tsconfig.json"

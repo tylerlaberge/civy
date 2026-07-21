@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Keep the base NodeNext/ESM defaults — this package ships as pure ESM.
+    "outDir": "dist",
+    "types": ["node"]
+  },
+  "include": ["src", "vitest.config.ts"],
+  "exclude": ["dist"]
+}
