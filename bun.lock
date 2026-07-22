@@ -13,6 +13,7 @@
       "name": "@civy/api",
       "version": "0.0.0",
       "dependencies": {
+        "@civy/types": "workspace:*",
         "@nestjs/common": "^11.1.28",
         "@nestjs/config": "^4.0.4",
         "@nestjs/core": "^11.1.28",
@@ -41,6 +42,7 @@
       "dependencies": {
         "@astrojs/node": "^9.4.4",
         "@astrojs/react": "^4.4.1",
+        "@civy/types": "workspace:*",
         "@tailwindcss/vite": "^4.1.14",
         "astro": "^5.15.0",
         "react": "^19.2.0",
@@ -61,6 +63,7 @@
       "name": "@civy/worker",
       "version": "0.0.0",
       "dependencies": {
+        "@civy/types": "workspace:*",
         "@nestjs/common": "^11.1.28",
         "@nestjs/config": "^4.0.4",
         "@nestjs/core": "^11.1.28",
@@ -77,6 +80,14 @@
         "@swc/core": "^1.15.46",
         "@types/node": "^24",
         "unplugin-swc": "^1.5.9",
+        "vitest": "^3.2.4",
+      },
+    },
+    "packages/types": {
+      "name": "@civy/types",
+      "version": "0.0.0",
+      "devDependencies": {
+        "typescript": "^5.7.3",
         "vitest": "^3.2.4",
       },
     },
@@ -185,6 +196,8 @@
     "@capsizecss/unpack": ["@capsizecss/unpack@4.0.1", "", { "dependencies": { "fontkitten": "^1.0.3" } }, "sha512-CuNiSqg7+e1cO/GjffyMOm5Tt2jUF9CWHHnvQ/UkqvtkGfHdgwEC0wpmq7fkN3gxwpRnrAN0WzO3vREKmNolMQ=="],
 
     "@civy/api": ["@civy/api@workspace:apps/api"],
+
+    "@civy/types": ["@civy/types@workspace:packages/types"],
 
     "@civy/web": ["@civy/web@workspace:apps/web"],
 

@@ -1,0 +1,24 @@
+# https://moonrepo.dev/docs/config/project
+$schema: "https://moonrepo.dev/schemas/project.json"
+
+type: "library"
+language: "typescript"
+
+tasks:
+  # Emit compiled JS + declarations to dist/ via the build config, which
+  # excludes test files (the inherited `tsc --outDir dist` would compile specs
+  # into dist too). Same override pattern the Nest apps use for their builds.
+  build:
+    command: "tsc -p tsconfig.build.json"
+    options:
+      mergeArgs: "replace"
+    inputs:
+      - "@globs(sources)"
+      - "tsconfig.json"
+      - "tsconfig.build.json"
+      - "/tsconfig.base.json"
+    outputs:
+      - "dist"
+
+  # lint / typecheck / test are inherited from .moon/tasks/bun.yml
+  # (biome check . / tsc --noEmit / vitest run).
