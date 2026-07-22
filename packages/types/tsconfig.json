@@ -3,7 +3,9 @@
   "compilerOptions": {
     // Keep the base NodeNext/ESM defaults — this package ships as pure ESM.
     "outDir": "dist",
-    "types": ["node"]
+    // Pure types + a small registry const; no Node APIs, so pull in no ambient
+    // @types. Keeps the package free of an unused @types/node dependency.
+    "types": []
   },
   "include": ["src", "vitest.config.ts"],
   "exclude": ["dist"]
