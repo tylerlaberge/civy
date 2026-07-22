@@ -1,0 +1,60 @@
+{
+  "name": "civy",
+  // Compose-based dev environment: the `devcontainer` service is the Claude sandbox; `redis` is the
+  // ingestion worker's BullMQ backend. See docker-compose.yml.
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "devcontainer",
+  "runServices": ["devcontainer", "redis"],
+  "remoteUser": "dev",
+  "workspaceFolder": "${localWorkspaceFolder}",
+  "containerEnv": {
+    // Claude's config lives in the container-local civy-claude-config volume (see mounts), never the
+    // host ~/.claude, so a hijacked session can't read host credentials or other repos' data.
+    "CLAUDE_CONFIG_DIR": "/home/dev/.claude",
+    "TZ": "America/New_York",
+    // The worker reaches the redis sibling by compose service name, not localhost.
+    "REDIS_URL": "redis://redis:6379",
+    // Fail fast instead of hanging on an interactive credential prompt.
+    "GIT_TERMINAL_PROMPT": "0"
+    // GitHub push auth comes from the host-mounted file (~/.config/civy/gh_token, see mounts and
+    // gitconfig), not an env var. Keep it a fine-grained, single-repo PAT and protect `main`.
+  },
+  "mounts": [
+    // Mirror the host repo path so Claude's path-derived memory key matches the host. In compose
+    // mode the workspace bind lives here (workspaceMount is ignored); the CLI applies it to the
+    // `devcontainer` service.
+    "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind,consistency=cached",
+    // Container-local bun install cache, so downloads persist across rebuilds and never touch the
+    // host. Its mount point exists dev-owned in the image, so the volume seeds dev-owned and needs
+    // no chown — see the Dockerfile's /home/dev/.bun note.
+    "source=civy-bun-cache,target=/home/dev/.bun,type=volume",
+    "source=civy-bashhistory,target=/commandhistory,type=volume",
+    // Container-local Claude config (credentials, transcripts); persists across rebuilds, never
+    // touches host ~/.claude. Container sessions aren't visible to host /resume, and vice-versa.
+    "source=civy-claude-config,target=/home/dev/.claude,type=volume"
+    // This repo's project memory (read/write, so new memories sync back to the host) is bound in
+    // docker-compose.yml, NOT here. Its host path embeds Claude's mangled project key, which is the
+    // workspace path with every non-alnum char -> `-`; devcontainer.json can't compute that (no
+    // string transforms on ${localWorkspaceFolder}), so hardcoding it locked the container to one
+    // developer at one path. initializeCommand (below) computes the key on the host and writes it to
+    // .devcontainer/.env; compose interpolates ${CLAUDE_PROJECT_KEY} into the bind. See
+    // init-host-env.sh. The READ-ONLY binds (skills, gh token dir) live in compose for a different
+    // reason — this CLI drops the `readonly` flag from `mounts` in compose mode.
+  ],
+  // Web (Astro) and API (NestJS) dev servers, surfaced to the host when running. Redis is
+  // intentionally NOT forwarded — nothing on the host needs it.
+  "forwardPorts": [4321, 3000],
+  // Runs on the HOST before the container is created (both `bun run dc:up` and IDE "Reopen in
+  // Container"): computes Claude's mangled project key for THIS clone path, ensures the real host
+  // memory dir exists, and writes .devcontainer/.env for compose. Makes the memory bind portable.
+  "initializeCommand": ".devcontainer/init-host-env.sh ${localWorkspaceFolder}",
+  // bun install runs once at creation (pre-firewall, full network) to warm the bun-cache volume.
+  // The firewall runs on every start because iptables rules are wiped on restart.
+  "postCreateCommand": "bun install",
+  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": ["anthropic.claude-code"]
+    }
+  }
+}

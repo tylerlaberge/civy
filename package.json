@@ -15,7 +15,12 @@
   "scripts": {
     "check": "moon check --all",
     "format": "biome format --write .",
-    "format:check": "biome format ."
+    "format:check": "biome format .",
+    "dc:up": "npx --yes @devcontainers/cli@0.87.0 up --workspace-folder .",
+    "dc:rebuild": "npx --yes @devcontainers/cli@0.87.0 up --workspace-folder . --remove-existing-container --build-no-cache",
+    "dc:shell": "npx --yes @devcontainers/cli@0.87.0 exec --workspace-folder . bash -lc 'sudo /usr/local/bin/init-firewall.sh >/dev/null && exec zsh'",
+    "dc:claude": "npx --yes @devcontainers/cli@0.87.0 exec --workspace-folder . bash -lc 'sudo /usr/local/bin/init-firewall.sh >/dev/null && exec claude \"$@\"' --",
+    "dc:down": "docker compose -f .devcontainer/docker-compose.yml down --remove-orphans"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.0",

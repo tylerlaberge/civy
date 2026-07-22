@@ -54,4 +54,55 @@ moon run <project>:test     # tests for one project
 moon ci                     # what CI runs (affected-aware)
 ```
 
-Development happens primarily inside the sandboxed devcontainer in `.devcontainer/`.
+## Development container
+
+Development happens primarily inside the sandboxed devcontainer in
+[`.devcontainer/`](.devcontainer) — Claude Code often runs there remotely, so the container is a real
+security boundary, not just a convenience:
+
+- **Isolated Claude credentials.** `CLAUDE_CONFIG_DIR` points at a container-local named volume; the
+  host `~/.claude` credentials are never mounted (only `~/.claude/skills` is bound, read-only).
+- **Restricted egress.** [`init-firewall.sh`](.devcontainer/init-firewall.sh) runs as root on every
+  start (scoped sudo; it can't be disabled from inside). Public internet stays open — Claude needs
+  docs, package registries, GitHub, and the ingestion APIs — but private/internal ranges (host, LAN,
+  cloud metadata) are blocked, with a single carve-out for the compose network so the worker can
+  reach `redis`.
+- **No host secrets.** GitHub push auth comes from a read-only host-mounted token, not the host SSH
+  keys or a baked-in credential.
+
+A `redis` sibling service (the ingestion worker's BullMQ backend) comes up alongside the sandbox on
+the compose network, reachable as `redis://redis:6379`.
+
+### Bringing it up
+
+Prerequisite: a container runtime (Docker / Rancher Desktop). Drive it with the `dc:*` scripts (or
+your IDE's "Reopen in Container"):
+
+```bash
+bun run dc:up        # build (first run) + start; runs bun install + the firewall
+bun run dc:shell     # interactive zsh inside the container
+bun run dc:claude    # launch Claude Code inside the container
+bun run dc:rebuild   # rebuild the image from scratch (after changing .devcontainer/*)
+bun run dc:down      # stop + remove the container (image, login, caches, history kept in volumes)
+```
+
+Pass Claude flags through after `--`, e.g. `bun run dc:claude -- --dangerously-skip-permissions`.
+
+> Always start/restart through these scripts or "Reopen in Container". A raw `docker start` skips
+> `postStartCommand` and so **bypasses the firewall** — `dc:shell` and `dc:claude` re-run it before
+> handing over control to cover that case.
+
+### Enable git push (one-time)
+
+Pushing from inside the container uses a fine-grained, single-repo GitHub PAT mounted read-only —
+never the host SSH keys. Create it (Settings → Developer settings → fine-grained tokens; scope it to
+this repo with Contents: read/write), then:
+
+```bash
+mkdir -p ~/.config/civy
+printf '%s' github_pat_xxxxxxxx > ~/.config/civy/gh_token   # no trailing newline
+chmod 600 ~/.config/civy/gh_token
+```
+
+The [`gitconfig`](.devcontainer/gitconfig) credential helper reads it at push time, and `gh` sources
+the same file as `GH_TOKEN`. Protect `main` on the GitHub repo so a hijacked session can't force-push.
