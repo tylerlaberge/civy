@@ -1,6 +1,6 @@
 # Local dev stack: the Claude sandbox plus a Redis sibling (the ingestion worker's BullMQ backend).
 # Both sit on compose's default network, so the sandbox reaches redis by service name — and
-# init-firewall.sh carves that subnet out of its private-range blocks. No ports are published to the
+# init-firewall.sh permits exactly that address on the queue port. No ports are published to the
 # host: redis is only needed from inside the network, and the web/api dev servers are reached via
 # devcontainer.json's forwardPorts, not compose.
 #
@@ -20,22 +20,19 @@ services:
       - NET_ADMIN
       - NET_RAW
     command: sleep infinity
+    # PID 1 is `sleep`, which doesn't reap children; long agent sessions would accumulate zombies.
+    init: true
     # Wait for redis to pass its healthcheck so the worker's fail-fast boot connect doesn't race it.
     depends_on:
       redis:
         condition: service_healthy
-    # Host binds that devcontainer.json can't express correctly live here; keep these targets OUT of
-    # devcontainer.json (compose merges service volumes by target, so a duplicate there would win).
-    #
-    # READ-ONLY binds: in compose mode the devcontainer CLI rewrites `mounts` into short-syntax
-    # compose volumes and DROPS the `readonly` flag, so a `type=bind,readonly` mount silently comes
-    # up writable — the agent could then edit host skills or the gh token. Compose honors `:ro`.
-    #
-    # MEMORY bind (read/write): its host path embeds ${CLAUDE_PROJECT_KEY}, computed per clone path
-    # by init-host-env.sh (via initializeCommand) and delivered through the generated .devcontainer/
-    # .env, which compose loads from the dir of the first `-f` file. Both source and target use the
-    # key: the source is the host's real memory dir, the target matches the container workspace so
-    # Claude's memory key resolves. RW so new memories sync back to the host.
+    # These binds must stay here rather than in devcontainer.json's `mounts` (compose merges service
+    # volumes by target, so a duplicate there would win):
+    #   - read-only binds, because in compose mode the devcontainer CLI drops the `readonly` flag and
+    #     the mount silently comes up writable. Compose honors `:ro`.
+    #   - the memory bind, whose path embeds ${CLAUDE_PROJECT_KEY} — computed per clone path by
+    #     init-host-env.sh and delivered via the generated .env, which compose loads from the dir of
+    #     the first `-f` file.
     volumes:
       # Host skills, so sandboxed Claude matches host behavior — read-only.
       - ${HOME}/.claude/skills:/home/dev/.claude/skills:ro
@@ -44,14 +41,20 @@ services:
       # GitHub push token dir (see README "Enable git push") — read-only.
       - ${HOME}/.config/civy:/home/dev/.config/civy:ro
       # This repo's project memory — read/write. Key is generated; see the note above.
-      - ${HOME}/.claude/projects/${CLAUDE_PROJECT_KEY}/memory:/home/dev/.claude/projects/${CLAUDE_PROJECT_KEY}/memory
+      #
+      # RESIDUAL RISK, accepted deliberately: this is the one mount that isn't one-directional. The
+      # host's Claude sessions for this project auto-load these files, so a compromised container
+      # could write instructions here and influence the host agent, which runs outside this
+      # firewall. Read/write is the point (memories written in the container sync home); the README
+      # security section states this rather than claiming absolute isolation.
+      - ${HOME}/.claude/projects/${CLAUDE_PROJECT_KEY:-unset}/memory:/home/dev/.claude/projects/${CLAUDE_PROJECT_KEY:-unset}/memory
 
-  # BullMQ's Redis backend for the ingestion worker. Pinned to a minor tag (alpine) for a small,
-  # reproducible-enough image. Reachable only on the compose network as `redis:6379`.
+  # BullMQ's Redis backend for the ingestion worker. Digest-pinned to match the base image's supply
+  # chain stance. Reachable only on the compose network as `redis:6379`.
   redis:
-    image: redis:7-alpine
-    # Durable enough for local dev without RDB snapshot churn; the queue is rebuildable anyway.
-    command: ["redis-server", "--appendonly", "yes"]
+    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+    # AOF only: `--save ""` clears the compiled-in RDB snapshot points, which stay active otherwise.
+    command: ["redis-server", "--appendonly", "yes", "--save", ""]
     volumes:
       - civy-redis-data:/data
     healthcheck:

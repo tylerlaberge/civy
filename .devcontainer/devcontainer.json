@@ -11,6 +11,7 @@
     // Claude's config lives in the container-local civy-claude-config volume (see mounts), never the
     // host ~/.claude, so a hijacked session can't read host credentials or other repos' data.
     "CLAUDE_CONFIG_DIR": "/home/dev/.claude",
+    // Single-developer repo (as is the git identity in gitconfig); adjust if that changes.
     "TZ": "America/New_York",
     // The worker reaches the redis sibling by compose service name, not localhost.
     "REDIS_URL": "redis://redis:6379",
@@ -32,25 +33,22 @@
     // Container-local Claude config (credentials, transcripts); persists across rebuilds, never
     // touches host ~/.claude. Container sessions aren't visible to host /resume, and vice-versa.
     "source=civy-claude-config,target=/home/dev/.claude,type=volume"
-    // This repo's project memory (read/write, so new memories sync back to the host) is bound in
-    // docker-compose.yml, NOT here. Its host path embeds Claude's mangled project key, which is the
-    // workspace path with every non-alnum char -> `-`; devcontainer.json can't compute that (no
-    // string transforms on ${localWorkspaceFolder}), so hardcoding it locked the container to one
-    // developer at one path. initializeCommand (below) computes the key on the host and writes it to
-    // .devcontainer/.env; compose interpolates ${CLAUDE_PROJECT_KEY} into the bind. See
-    // init-host-env.sh. The READ-ONLY binds (skills, gh token dir) live in compose for a different
-    // reason — this CLI drops the `readonly` flag from `mounts` in compose mode.
+    // The project-memory bind and the read-only binds live in docker-compose.yml, not here: the
+    // former needs an interpolated path key, and this CLI drops the `readonly` flag from `mounts`
+    // in compose mode. See the notes in that file.
   ],
   // Web (Astro) and API (NestJS) dev servers, surfaced to the host when running. Redis is
   // intentionally NOT forwarded — nothing on the host needs it.
   "forwardPorts": [4321, 3000],
-  // Runs on the HOST before the container is created (both `bun run dc:up` and IDE "Reopen in
-  // Container"): computes Claude's mangled project key for THIS clone path, ensures the real host
-  // memory dir exists, and writes .devcontainer/.env for compose. Makes the memory bind portable.
-  "initializeCommand": ".devcontainer/init-host-env.sh ${localWorkspaceFolder}",
-  // bun install runs once at creation (pre-firewall, full network) to warm the bun-cache volume.
-  // The firewall runs on every start because iptables rules are wiped on restart.
-  "postCreateCommand": "bun install",
+  // Runs on the HOST before the container is created: computes Claude's project key for THIS clone
+  // path, ensures the host memory dir exists, and writes .devcontainer/.env for compose. Array form
+  // bypasses the shell, so clone paths containing spaces work.
+  "initializeCommand": [".devcontainer/init-host-env.sh", "${localWorkspaceFolder}"],
+  // Firewall first, THEN install: package lifecycle scripts are the most third-party code this
+  // container ever runs, and they have no business doing so with unrestricted host/LAN access.
+  // Public egress is allowed either way, so the install loses nothing by waiting.
+  "postCreateCommand": "sudo /usr/local/bin/init-firewall.sh && bun install",
+  // Re-applied on every start because iptables rules don't survive a restart.
   "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
   "customizations": {
     "vscode": {

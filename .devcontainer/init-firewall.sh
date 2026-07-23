@@ -1,95 +1,135 @@
 #!/usr/bin/env bash
-# Network policy: default-ALLOW public egress, BLOCK private/internal ranges so a hijacked agent
-# can't reach the host, LAN, or cloud metadata (169.254.169.254) — but with ONE carve-out kino
-# lacks: the compose network, so the sandbox can still reach the `redis` sibling. Public egress
-# stays open by design (Claude needs docs, npm/registry, GitHub, the ingestion APIs). REJECT (not
-# DROP) so blocked attempts fail fast. Runs as root on every start via scoped sudo; can't be
-# disabled from inside.
+# Egress policy: public internet is ALLOWED by default (the agent needs docs, package registries,
+# GitHub, and the ingestion APIs); private/internal ranges are BLOCKED so a hijacked agent can't
+# reach the host, the LAN, or cloud metadata (169.254.169.254). The single exception is the `redis`
+# sibling, allowed on its address and queue port only.
+#
+# Rules live in a dedicated CIVY_EGRESS chain that is built off to the side and swapped into OUTPUT
+# only once complete. Re-running this script therefore replaces the policy without ever tearing it
+# down, so an agent already running in the container never sees an unfiltered window. Runs as root
+# via scoped sudo on every start and cannot be disabled from inside.
 set -euo pipefail
 IFS=$'\n\t'
 
-# Private / internal IPv4 ranges to block outbound. The compose-network carve-out below is inserted
-# BEFORE these REJECTs, so the container's own subnet (which lives inside 172.16.0.0/12) stays
-# reachable while the rest of that range — and every other private range — is blocked.
+CHAIN=CIVY_EGRESS
+TMP=CIVY_EGRESS_NEW
+REDIS_HOST="${REDIS_FIREWALL_HOST:-redis}"
+REDIS_PORT="${REDIS_FIREWALL_PORT:-6379}"
+
+# Private / internal IPv4 ranges to block outbound.
 PRIVATE4=(
   "10.0.0.0/8"
-  "172.16.0.0/12"     # includes the Docker bridge / sibling containers
+  "172.16.0.0/12"     # includes the Docker bridge, its gateway, and sibling containers
   "192.168.0.0/16"
   "169.254.0.0/16"    # link-local, incl. cloud metadata 169.254.169.254
   "100.64.0.0/10"     # carrier-grade NAT
 )
 
-# Private / link-local IPv6 ranges. fc00::/7 already covers unique-local (incl. AWS's
-# fd00:ec2::254 metadata address), so it needs no entry of its own.
+# fc00::/7 already covers unique-local (incl. AWS's fd00:ec2::254 metadata address).
 PRIVATE6=(
   "fc00::/7"          # unique local addresses
   "fe80::/10"         # link-local
 )
 
-echo "[firewall] resetting rules..."
-iptables -F
-iptables -X
-iptables -P INPUT ACCEPT      # inbound is host/IDE/port-forward; not the threat
-iptables -P FORWARD DROP
-iptables -P OUTPUT ACCEPT      # public internet allowed by default
+# Fail closed. Building into an unreferenced chain already means a mid-run failure leaves the
+# PREVIOUS policy in force, but a first run has no previous policy to fall back on — so on any error
+# drop egress outright rather than leave the container wide open.
+fail_closed() {
+  echo "[firewall] FAILED — dropping egress" >&2
+  iptables -P OUTPUT DROP 2>/dev/null || true
+  ip6tables -P OUTPUT DROP 2>/dev/null || true
+}
+trap fail_closed ERR
 
-# Scope note: INPUT ACCEPT above plus the ESTABLISHED rule below means the private-range blocks only
-# stop connections the container INITIATES. A private-range peer that dials in (e.g. a sibling
-# container on the same bridge) still gets a bidirectional channel, because our replies match
-# ESTABLISHED and short-circuit the REJECTs. That's the trade for IDE/port-forward usability, and it
-# holds the threat model — the agent can't reach out — but it isn't "nothing can talk to us".
-echo "[firewall] allowing loopback + established..."
-iptables -A OUTPUT -o lo -j ACCEPT
-iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+# Create the staging chain, clearing any leftovers from a previous failed run.
+reset_chain() {
+  local ipt="$1"
+  while "$ipt" -D OUTPUT -j "$TMP" 2>/dev/null; do :; done
+  "$ipt" -N "$TMP" 2>/dev/null || "$ipt" -F "$TMP"
+}
 
-# Allow DNS to the container's resolver (may be a private IP) — must precede the private-range blocks.
-for ns in $(awk '/^nameserver/{print $2}' /etc/resolv.conf 2>/dev/null); do
+# Put the freshly built chain into effect, replacing the previous generation. The new jump is
+# inserted BEFORE the old one is removed so there is never a gap, then the old chain is dropped and
+# the staging chain takes over its name.
+swap_chain() {
+  local ipt="$1"
+  "$ipt" -I OUTPUT 1 -j "$TMP"
+  while "$ipt" -D OUTPUT -j "$CHAIN" 2>/dev/null; do :; done
+  "$ipt" -F "$CHAIN" 2>/dev/null || true
+  "$ipt" -X "$CHAIN" 2>/dev/null || true
+  "$ipt" -E "$TMP" "$CHAIN"
+}
+
+echo "[firewall] building IPv4 policy..."
+reset_chain iptables
+iptables -A "$TMP" -o lo -j ACCEPT
+iptables -A "$TMP" -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+# DNS to the container's resolver(s), which may themselves be private addresses. Only v4 resolvers
+# belong here — handing an IPv6 nameserver to iptables errors out and would abort the run.
+for ns in $(awk '/^nameserver/ && $2 !~ /:/ {print $2}' /etc/resolv.conf 2>/dev/null); do
   echo "[firewall] allowing DNS resolver ${ns}"
-  iptables -A OUTPUT -d "${ns}" -p udp --dport 53 -j ACCEPT
-  iptables -A OUTPUT -d "${ns}" -p tcp --dport 53 -j ACCEPT
+  iptables -A "$TMP" -d "${ns}" -p udp --dport 53 -j ACCEPT
+  iptables -A "$TMP" -d "${ns}" -p tcp --dport 53 -j ACCEPT
 done
 
-# Compose-network carve-out (civy-specific): allow the container's OWN subnet so it can reach the
-# `redis` sibling on the compose network. This must be appended BEFORE the private-range REJECTs
-# (iptables is first-match) — the compose subnet sits inside 172.16.0.0/12, which the loop below
-# rejects. Derive the CIDR from the primary global-scope interface (eth0), e.g. 172.20.0.3/16;
-# iptables masks the host bits, so `-d 172.20.0.3/16` allows the whole 172.20.0.0/16 compose network.
-COMPOSE_CIDR="$(ip -o -f inet addr show scope global 2>/dev/null | awk '{print $4; exit}')"
-if [ -n "${COMPOSE_CIDR:-}" ]; then
-  echo "[firewall] allowing compose network ${COMPOSE_CIDR} (redis sibling)"
-  iptables -A OUTPUT -d "${COMPOSE_CIDR}" -j ACCEPT
-else
-  echo "[firewall] WARNING: could not determine compose subnet — redis may be unreachable" >&2
-fi
-
-echo "[firewall] blocking egress to private/internal ranges..."
-for cidr in "${PRIVATE4[@]}"; do
-  iptables -A OUTPUT -d "${cidr}" -j REJECT --reject-with icmp-admin-prohibited
-done
-
-# IPv6: block private/link-local ranges too. Probe the kernel once (the binary existing doesn't mean
-# ip6_tables is loaded), then let failures be fatal via set -e — swallowing them with `|| true` would
-# let the whole v6 policy silently no-op while the script still reports OK.
-if ip6tables -L -n >/dev/null 2>&1; then
-  echo "[firewall] applying IPv6 policy..."
-  ip6tables -F
-  ip6tables -P INPUT ACCEPT     # mirror the v4 policy (lines 35-37) for stack parity
-  ip6tables -P FORWARD DROP
-  ip6tables -P OUTPUT ACCEPT
-  ip6tables -A OUTPUT -o lo -j ACCEPT
-  ip6tables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-  for cidr in "${PRIVATE6[@]}"; do
-    ip6tables -A OUTPUT -d "${cidr}" -j REJECT
+# The redis sibling, narrowly. Allowing the whole compose subnet instead would also expose the
+# bridge gateway — a host interface on Linux — and every other container on that network.
+REDIS_IPS="$(getent ahostsv4 "${REDIS_HOST}" 2>/dev/null | awk '{print $1}' | sort -u)" || REDIS_IPS=""
+if [ -n "${REDIS_IPS}" ]; then
+  for ip in ${REDIS_IPS}; do
+    echo "[firewall] allowing ${REDIS_HOST} at ${ip}:${REDIS_PORT}"
+    iptables -A "$TMP" -d "${ip}" -p tcp --dport "${REDIS_PORT}" -j ACCEPT
   done
 else
+  echo "[firewall] WARNING: could not resolve ${REDIS_HOST} — the worker will not reach it" >&2
+fi
+
+for cidr in "${PRIVATE4[@]}"; do
+  iptables -A "$TMP" -d "${cidr}" -j REJECT --reject-with icmp-admin-prohibited
+done
+
+swap_chain iptables
+iptables -P INPUT ACCEPT      # inbound is host/IDE/port-forward; not the threat
+iptables -P FORWARD DROP
+iptables -P OUTPUT ACCEPT     # anything the chain doesn't reject is public traffic
+
+# Scope note: INPUT ACCEPT plus the ESTABLISHED rule means these blocks only stop connections the
+# container INITIATES. A private-range peer that dials in still gets a bidirectional channel,
+# because our replies match ESTABLISHED. That's the trade for IDE/port-forward usability; it holds
+# the threat model (the agent can't reach out) but isn't "nothing can talk to us".
+
+# The binary existing doesn't mean ip6_tables is loaded, so probe once and reuse the answer.
+if ip6tables -L -n >/dev/null 2>&1; then
+  HAS_IP6=1
+else
+  HAS_IP6=0
   echo "[firewall] IPv6 unsupported by this kernel — skipping v6 policy"
 fi
 
+if [ "${HAS_IP6}" -eq 1 ]; then
+  echo "[firewall] building IPv6 policy..."
+  reset_chain ip6tables
+  ip6tables -A "$TMP" -o lo -j ACCEPT
+  ip6tables -A "$TMP" -m state --state ESTABLISHED,RELATED -j ACCEPT
+  for ns in $(awk '/^nameserver/ && $2 ~ /:/ {print $2}' /etc/resolv.conf 2>/dev/null); do
+    echo "[firewall] allowing IPv6 DNS resolver ${ns}"
+    ip6tables -A "$TMP" -d "${ns}" -p udp --dport 53 -j ACCEPT
+    ip6tables -A "$TMP" -d "${ns}" -p tcp --dport 53 -j ACCEPT
+  done
+  for cidr in "${PRIVATE6[@]}"; do
+    ip6tables -A "$TMP" -d "${cidr}" -j REJECT
+  done
+  swap_chain ip6tables
+  ip6tables -P INPUT ACCEPT
+  ip6tables -P FORWARD DROP
+  ip6tables -P OUTPUT ACCEPT
+fi
+
 echo "[firewall] verifying..."
-# Public internet must be reachable. This one can genuinely fail, so probe it for real — but across
-# a few hosts, failing only if ALL are unreachable. Gating on a single host would let that host's
-# transient outage exit 1, which fails postStartCommand and (since dc:claude re-runs this before
-# launching) can block starting Claude even though the firewall applied fine.
+# Public internet must be reachable. Probe a few hosts and fail only if ALL are unreachable: gating
+# on one host would let its transient outage fail postStartCommand (and so block starting Claude,
+# since dc:shell/dc:claude re-run this) even though the policy applied fine.
 PUBLIC_HOSTS=("https://example.com" "https://www.google.com" "https://cloudflare.com")
 public_ok=0
 for host in "${PUBLIC_HOSTS[@]}"; do
@@ -102,33 +142,20 @@ if [ "${public_ok}" -ne 1 ]; then
   echo "[firewall] ERROR: public internet unreachable on all probe hosts — policy too strict" >&2
   exit 1
 fi
-# Assert the blocks exist in the ruleset rather than probing connectivity to one of them: nothing
-# listens on the metadata address under Docker Desktop, so a curl to it fails whether or not the
-# rules are there — a check that passes with the whole block loop deleted. `iptables -C` tests what
-# we actually care about (rule present: rc=0; absent: rc=1) and works on every runtime.
+
+# Assert the blocks exist rather than probing connectivity to one: nothing listens on the metadata
+# address under Docker Desktop, so a curl there fails whether or not the rules are present — a check
+# that would still pass with the whole block loop deleted. `iptables -C` tests what we care about.
 for cidr in "${PRIVATE4[@]}"; do
-  iptables -C OUTPUT -d "${cidr}" -j REJECT --reject-with icmp-admin-prohibited 2>/dev/null \
-    || { echo "[firewall] ERROR: missing IPv4 block for ${cidr}" >&2; exit 1; }
+  iptables -C "$CHAIN" -d "${cidr}" -j REJECT --reject-with icmp-admin-prohibited 2>/dev/null \
+    || { echo "[firewall] ERROR: missing IPv4 block for ${cidr}" >&2; fail_closed; exit 1; }
 done
-if ip6tables -L -n >/dev/null 2>&1; then
+if [ "${HAS_IP6}" -eq 1 ]; then
   for cidr in "${PRIVATE6[@]}"; do
-    ip6tables -C OUTPUT -d "${cidr}" -j REJECT 2>/dev/null \
-      || { echo "[firewall] ERROR: missing IPv6 block for ${cidr}" >&2; exit 1; }
+    ip6tables -C "$CHAIN" -d "${cidr}" -j REJECT 2>/dev/null \
+      || { echo "[firewall] ERROR: missing IPv6 block for ${cidr}" >&2; fail_closed; exit 1; }
   done
 fi
-# Confirm the compose carve-out rule is actually in place, else redis is silently unreachable.
-if [ -n "${COMPOSE_CIDR:-}" ]; then
-  iptables -C OUTPUT -d "${COMPOSE_CIDR}" -j ACCEPT 2>/dev/null \
-    || { echo "[firewall] ERROR: missing compose-network allow for ${COMPOSE_CIDR}" >&2; exit 1; }
-fi
 
-# Best-effort reachability check for the redis sibling. A WARNING, not fatal: redis may still be
-# starting when postStartCommand runs, and a slow sibling must not block the firewall (and thus
-# Claude) from coming up. bash's /dev/tcp does a real TCP connect through the carve-out above.
-if timeout 5 bash -c ':> /dev/tcp/redis/6379' 2>/dev/null; then
-  echo "[firewall] redis reachable at redis:6379"
-else
-  echo "[firewall] note: redis:6379 not reachable yet (it may still be starting)" >&2
-fi
-
-echo "[firewall] OK: public egress allowed, private/internal ranges blocked (compose network allowed)."
+trap - ERR
+echo "[firewall] OK: public egress allowed, private ranges blocked, ${REDIS_HOST}:${REDIS_PORT} permitted."

@@ -65,10 +65,23 @@ security boundary, not just a convenience:
 - **Restricted egress.** [`init-firewall.sh`](.devcontainer/init-firewall.sh) runs as root on every
   start (scoped sudo; it can't be disabled from inside). Public internet stays open — Claude needs
   docs, package registries, GitHub, and the ingestion APIs — but private/internal ranges (host, LAN,
-  cloud metadata) are blocked, with a single carve-out for the compose network so the worker can
-  reach `redis`.
+  cloud metadata) are blocked. The only exception is the `redis` sibling, permitted on its address
+  and queue port alone. Rules are built in a side chain and swapped in, so re-running never opens a
+  gap, and any error fails closed (egress dropped) rather than open.
 - **No host secrets.** GitHub push auth comes from a read-only host-mounted token, not the host SSH
   keys or a baked-in credential.
+
+**Known residual risk — the project-memory bind.** `~/.claude/projects/<key>/memory` is mounted
+**read-write** so memories written inside the container sync back to the host. That makes it the one
+channel that is not one-directional: your *host* Claude sessions for this project auto-load those
+files, so a compromised container could write instructions there and influence an agent running
+outside this sandbox, with your real credentials. This is a deliberate trade for memory sync, not an
+oversight — isolation here is strong, not absolute. Mount it `:ro` in
+[`docker-compose.yml`](.devcontainer/docker-compose.yml) if you'd rather close it.
+
+Verify the boundary at any time with `bun run dc:verify`, which asserts from inside the container
+that public egress works, the metadata address and bridge gateway are blocked, and `redis` is
+reachable only on its queue port.
 
 A `redis` sibling service (the ingestion worker's BullMQ backend) comes up alongside the sandbox on
 the compose network, reachable as `redis://redis:6379`.
@@ -79,9 +92,10 @@ Prerequisite: a container runtime (Docker / Rancher Desktop). Drive it with the 
 your IDE's "Reopen in Container"):
 
 ```bash
-bun run dc:up        # build (first run) + start; runs bun install + the firewall
+bun run dc:up        # build (first run) + start; applies the firewall, then bun install
 bun run dc:shell     # interactive zsh inside the container
 bun run dc:claude    # launch Claude Code inside the container
+bun run dc:verify    # assert the network boundary holds (see above)
 bun run dc:rebuild   # rebuild the image from scratch (after changing .devcontainer/*)
 bun run dc:down      # stop + remove the container (image, login, caches, history kept in volumes)
 ```
@@ -100,9 +114,12 @@ this repo with Contents: read/write), then:
 
 ```bash
 mkdir -p ~/.config/civy
-printf '%s' github_pat_xxxxxxxx > ~/.config/civy/gh_token   # no trailing newline
-chmod 600 ~/.config/civy/gh_token
+install -m 600 /dev/null ~/.config/civy/gh_token   # create it locked down first
+(umask 077; cat > ~/.config/civy/gh_token)         # paste the PAT, then Ctrl-D
 ```
+
+Creating the file with `install -m 600` first (and pasting rather than passing the token as an
+argument) avoids a world-readable window and keeps the PAT out of your shell history.
 
 The [`gitconfig`](.devcontainer/gitconfig) credential helper reads it at push time, and `gh` sources
 the same file as `GH_TOKEN`. Protect `main` on the GitHub repo so a hijacked session can't force-push.

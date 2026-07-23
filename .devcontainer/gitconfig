@@ -18,6 +18,9 @@
 	helper = "!f() { echo username=x-access-token; echo \"password=$(cat /home/dev/.config/civy/gh_token 2>/dev/null)\"; }; f"
 
 [user]
-	# Identity for commits made inside the container.
+	# Identity for commits made inside the container. Hardcoded on purpose: this is a
+	# single-developer repo. (init-host-env.sh is portable because one developer's CLONE PATH varies
+	# across machines and the memory key derives from it — not because the container is multi-user.)
+	# If that changes, source these from the mounted ~/.config/civy dir alongside the token.
 	name = tylerlaberge
 	email = tylerlaberge@protonmail.com

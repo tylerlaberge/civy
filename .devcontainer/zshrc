@@ -1,0 +1,10 @@
+# Interactive zsh config for the container. Chiefly: zsh honors HISTFILE but writes nothing unless
+# SAVEHIST is set, so without this the shell-history volume stays empty.
+HISTFILE=${HISTFILE:-/commandhistory/.history}
+HISTSIZE=10000
+SAVEHIST=10000
+setopt APPEND_HISTORY SHARE_HISTORY HIST_IGNORE_DUPS HIST_REDUCE_BLANKS
+
+autoload -Uz compinit && compinit -u
+
+PROMPT='%F{cyan}%~%f %# '

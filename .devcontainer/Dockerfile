@@ -57,24 +57,24 @@ RUN usermod -l dev -d /home/dev -m vscode \
 # Bake the firewall script at a fixed root-owned path and scope sudo to only it.
 # Root ownership stops `dev` rewriting the script to regain arbitrary root, so this is the ONLY
 # command dev may run as root. Don't add a second grant without re-reading that sentence: a
-# `chown` grant here (for the cache volumes) was a full root escalation in kino, because sudoers
-# matches argv literally rather than a resolved path — a relative argv matched from any cwd, and
-# chown follows symlinks, so `ln -s /usr/local/bin/init-firewall.sh target` handed dev the script.
-# The cache volume now seeds dev-owned instead (see /home/dev/.bun below), so no grant is needed.
-COPY .devcontainer/init-firewall.sh /usr/local/bin/init-firewall.sh
-RUN chmod 0755 /usr/local/bin/init-firewall.sh \
-  && chown root:root /usr/local/bin/init-firewall.sh \
-  && echo 'dev ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh' \
+# `chown` grant here would be a full root escalation: sudoers matches argv literally rather than a
+# resolved path, and chown follows symlinks, so a relative argv plus
+# `ln -s /usr/local/bin/init-firewall.sh target` would hand dev the script. The cache volume seeds
+# dev-owned instead (see /home/dev/.bun below), so no such grant is needed.
+# The script itself is COPYed near the end of this file, to keep it out of the cached layers.
+RUN echo 'dev ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh' \
   > /etc/sudoers.d/init-firewall \
   && chmod 0440 /etc/sudoers.d/init-firewall \
   # Revoke the base image's blanket NOPASSWD:ALL so the firewall can't be torn down from inside.
   && rm -f /etc/sudoers.d/vscode
 
-# Shell history volume (mounted in devcontainer.json) survives rebuilds.
+# Shell history volume (mounted in devcontainer.json) survives rebuilds. zsh is the interactive
+# shell here, so the history file is named for it and zshrc sets SAVEHIST (without which zsh writes
+# nothing at all).
 RUN mkdir -p /commandhistory \
-  && touch /commandhistory/.bash_history \
+  && touch /commandhistory/.history \
   && chown -R dev:dev /commandhistory
-ENV HISTFILE=/commandhistory/.bash_history
+ENV HISTFILE=/commandhistory/.history
 
 # Claude config mount point, owned by dev (the civy-claude-config volume mounts here at runtime).
 RUN mkdir -p /home/dev/.claude && chown -R dev:dev /home/dev/.claude
@@ -85,6 +85,7 @@ ENV USER=dev
 
 # Container git config: push to GitHub over HTTPS (rewrites SSH remotes). See gitconfig.
 COPY --chown=dev:dev .devcontainer/gitconfig /home/dev/.gitconfig
+COPY --chown=dev:dev .devcontainer/zshrc /home/dev/.zshrc
 
 # proto owns the toolchain; its shims + bin go on PATH ahead of everything. ~/.local/bin is where
 # the Claude Code installer lands.
@@ -99,11 +100,9 @@ RUN curl -fsSL https://moonrepo.dev/install/proto.sh | bash -s -- --yes --no-pro
 COPY --chown=dev:dev .prototools /tmp/proto/.prototools
 RUN cd /tmp/proto && proto use && rm -rf /tmp/proto
 
-# Mount point for the bun install cache, created here so a fresh named volume seeds from a dev-owned
-# directory and comes up dev-owned. Docker copies the image directory's ownership onto an empty
-# volume; a volume at a path the image DOESN'T have would mount root-owned and need a chown — which
-# is exactly the sudo escalation the firewall section warns about. Keeping the cache on a dev-owned
-# path avoids any chown grant.
+# Mount point for the bun install cache. Docker copies an image directory's ownership onto an empty
+# volume, so creating it dev-owned here means the volume mounts dev-owned; a volume at a path the
+# image lacks would come up root-owned and need the chown grant ruled out above.
 RUN mkdir -p /home/dev/.bun
 
 # Claude Code CLI via the official native installer -> ~/.local/bin/claude.
@@ -121,3 +120,13 @@ COPY --chown=dev:dev .devcontainer/claude-settings.json /home/dev/.claude/settin
 
 # Default to zsh for interactive shells.
 ENV SHELL=/bin/zsh
+
+# The firewall + verification scripts come last: they're the files most likely to be iterated on, and
+# copying them earlier would invalidate the proto/toolchain and Claude layers above on every edit.
+# init-firewall.sh must be root-owned so `dev` can't rewrite the one command its sudo grant allows.
+USER root
+COPY .devcontainer/init-firewall.sh /usr/local/bin/init-firewall.sh
+COPY .devcontainer/verify.sh /usr/local/bin/civy-verify
+RUN chmod 0755 /usr/local/bin/init-firewall.sh /usr/local/bin/civy-verify \
+  && chown root:root /usr/local/bin/init-firewall.sh /usr/local/bin/civy-verify
+USER dev
