@@ -15,12 +15,15 @@ services:
       context: ..
       dockerfile: .devcontainer/Dockerfile
     image: civy-claude-sandbox:latest
-    # NET_ADMIN lets init-firewall.sh manage iptables. That's the only capability added: NET_RAW
-    # (raw/packet sockets — ping, tcpdump, hand-crafted packets) isn't needed by iptables and nothing
-    # here uses it, so it isn't granted to a container whose premise is that the agent inside is
-    # hostile.
+    # NET_ADMIN lets init-firewall.sh manage iptables. NET_RAW must be explicitly DROPPED rather than
+    # merely left out of cap_add: it is in Docker's default capability set, so omitting it grants it.
+    # Raw/packet sockets (hand-crafted packets, ARP/ICMP spoofing, tcpdump) are not needed by iptables
+    # and nothing here uses them, so they don't belong in a container whose premise is that the agent
+    # inside is hostile. `ping` stops working; that's the trade, and curl covers the real checks.
     cap_add:
       - NET_ADMIN
+    cap_drop:
+      - NET_RAW
     command: sleep infinity
     # PID 1 is `sleep`, which doesn't reap children; long agent sessions would accumulate zombies.
     init: true

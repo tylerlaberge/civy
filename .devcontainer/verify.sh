@@ -10,13 +10,28 @@
 # rules reject with icmp-admin-prohibited, which surfaces as EHOSTUNREACH (113); an absent listener
 # behind no rule gives ECONNREFUSED (111) or a timeout instead. Keying on 113 is what makes these
 # checks capable of failing.
+#
+# Strength of each rejection check differs, so don't read them as equivalent. The gateway and redis:22
+# probes are the load-bearing ones: without the rules the gateway CONNECTs and redis:22 gives 111,
+# both unambiguous. The metadata probe is weaker, because 113 is not exclusively ours — a router's
+# ICMP host-unreachable, or neighbour-resolution failure on a host carrying a 169.254.0.0/16 link
+# route (zeroconf/avahi), produces it too. It is falsifiable on Docker Desktop (111 without the rule)
+# but can go soft on some native Linux hosts.
+#
+# IPv4 only: every probe is AF_INET. The v6 chain, its OUTPUT jump, and its policy are asserted by
+# init-firewall.sh's own `-C` checks, and a v6 probe here would fail spuriously on the many Docker
+# installs with no routable IPv6.
 set -uo pipefail
 
 REJECTED_ERRNO=113   # EHOSTUNREACH, i.e. our icmp-admin-prohibited REJECT
 
 fails=0
 pass() { echo "  ✓ $1"; }
-fail() { echo "  ✗ $1" >&2; fails=$((fails + 1)); }
+# Same stream as pass() and the section headers deliberately: splitting them meant a ✗ printed under
+# whichever heading stdout had reached, which is actively misleading for the one audience this script
+# has — someone diagnosing a broken boundary. Each ✗ names its own target, and the non-zero exit is
+# the machine-readable signal.
+fail() { echo "  ✗ $1"; fails=$((fails + 1)); }
 
 # Report how a TCP connect ended: CONNECTED, TIMEOUT, or "errno=<n>". python3 is already in the image
 # (node-gyp's toolchain) and is the only thing here that can surface the errno bash's /dev/tcp hides.
@@ -85,7 +100,7 @@ echo "[verify] redis is reachable ONLY on its queue port"
 assert_rejected "redis:22" redis 22
 
 if [ "${fails}" -ne 0 ]; then
-  echo "[verify] FAILED: ${fails} check(s)" >&2
+  echo "[verify] FAILED: ${fails} check(s)"
   exit 1
 fi
 echo "[verify] OK: all network boundary checks passed."

@@ -4,3 +4,6 @@
 *
 !.prototools
 !.devcontainer
+# Re-excluded after the directory: init-host-env.sh generates this on the host (it holds the Claude
+# project key) and nothing COPYs it, so it has no business entering the build context.
+.devcontainer/.env

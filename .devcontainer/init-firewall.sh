@@ -8,7 +8,11 @@
 # only once complete. Re-running this script therefore replaces the policy without ever tearing it
 # down, so an agent already running in the container never sees an unfiltered window. Runs as root
 # via scoped sudo on every start and cannot be disabled from inside.
-set -euo pipefail
+# -E (errtrace) is load-bearing, not decoration: without it bash does NOT propagate the ERR trap into
+# shell functions, so a failure inside reset_chain/swap_chain would exit WITHOUT running fail_closed —
+# leaving OUTPUT on policy ACCEPT with no filtering chain, i.e. wide open, on exactly the path the
+# fail-closed guarantee exists to cover.
+set -eEuo pipefail
 IFS=$'\n\t'
 
 # This runs as root on behalf of a user we treat as untrusted, and calls iptables, awk, getent, curl
@@ -43,10 +47,15 @@ PRIVATE6=(
 # Fail closed. Building into an unreferenced chain already means a mid-run failure leaves the
 # PREVIOUS policy in force, but a first run has no previous policy to fall back on — so on any error
 # drop egress outright rather than leave the container wide open.
+#
+# Terminating here is part of the contract. Bash resumes at the interrupted point once a signal
+# handler returns, so without the exit an INT/TERM would drop egress and then let the run carry on to
+# re-set `-P OUTPUT ACCEPT` and report success — undoing the very thing the trap just did.
 fail_closed() {
   echo "[firewall] FAILED — dropping egress" >&2
   iptables -P OUTPUT DROP 2>/dev/null || true
   ip6tables -P OUTPUT DROP 2>/dev/null || true
+  exit 1
 }
 # INT/TERM as well as ERR: a signal landing between reset_chain and swap_chain (Ctrl-C during
 # postCreateCommand, a docker stop racing the run) would otherwise leave OUTPUT with policy ACCEPT
@@ -64,10 +73,11 @@ reset_chain() {
 # inserted BEFORE the old one is removed so there is never a gap, then the old chain is dropped and
 # the staging chain takes over its name.
 #
-# The final rename relies on `-E`, whose support under the nft backend has historically varied.
-# Verified working on this image's iptables v1.8.9 (nf_tables), for both iptables and ip6tables. If a
-# future base image regresses it, the rename fails, the ERR trap fires, and egress drops entirely —
-# loud rather than silent, but see the README note on recovering from a fail-closed container.
+# The final rename relies on iptables' `-E`, whose support under the nft backend has historically
+# varied. Verified working on this image's iptables v1.8.9 (nf_tables), for both iptables and
+# ip6tables. If a future base image regresses it, the rename fails and egress drops entirely — loud
+# rather than silent (see the README note on recovering from a fail-closed container). That reaction
+# depends on `set -E` above: without errtrace the ERR trap would not fire from inside this function.
 swap_chain() {
   local ipt="$1"
   "$ipt" -I OUTPUT 1 -j "$TMP"
