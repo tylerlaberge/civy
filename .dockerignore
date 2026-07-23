@@ -1,22 +1,6 @@
-# The devcontainer build context is the repo root, so everything here would otherwise be shipped to
-# the daemon on every build. Only .prototools and .devcontainer/* are actually COPYed.
-.git
-.github
-.idea
-.vscode
-node_modules
-**/node_modules
-dist
-build
-**/dist
-**/.astro
-.moon/cache
-.moon/docker
-*.sqlite
-*.sqlite-shm
-*.sqlite-wal
-*.db
-*.log
-.DS_Store
-.env
-.env.*
+# The devcontainer build context is the repo root, but only .prototools and .devcontainer/* are ever
+# COPYed. An allowlist encodes that directly: everything is excluded, those two are added back, and a
+# new source directory can't silently start shipping to the daemon on every build.
+*
+!.prototools
+!.devcontainer

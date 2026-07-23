@@ -15,10 +15,12 @@ services:
       context: ..
       dockerfile: .devcontainer/Dockerfile
     image: civy-claude-sandbox:latest
-    # NET_ADMIN/NET_RAW let init-firewall.sh manage iptables.
+    # NET_ADMIN lets init-firewall.sh manage iptables. That's the only capability added: NET_RAW
+    # (raw/packet sockets — ping, tcpdump, hand-crafted packets) isn't needed by iptables and nothing
+    # here uses it, so it isn't granted to a container whose premise is that the agent inside is
+    # hostile.
     cap_add:
       - NET_ADMIN
-      - NET_RAW
     command: sleep infinity
     # PID 1 is `sleep`, which doesn't reap children; long agent sessions would accumulate zombies.
     init: true

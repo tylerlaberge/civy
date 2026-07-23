@@ -11,10 +11,19 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+# This runs as root on behalf of a user we treat as untrusted, and calls iptables, awk, getent, curl
+# and sort by bare name. Debian's sudoers sets `secure_path`, which is what stops `dev` shadowing any
+# of them — but that invariant lives in a file this repo doesn't own. Pin PATH here so the one
+# command `dev` may run as root defends itself instead of depending on that.
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
 CHAIN=CIVY_EGRESS
 TMP=CIVY_EGRESS_NEW
-REDIS_HOST="${REDIS_FIREWALL_HOST:-redis}"
-REDIS_PORT="${REDIS_FIREWALL_PORT:-6379}"
+# Not configurable via the environment: every invocation is `sudo init-firewall.sh`, and sudo's
+# `env_reset` strips anything passed in, so env knobs here would read as configurable but be dead.
+REDIS_HOST=redis
+REDIS_PORT=6379
 
 # Private / internal IPv4 ranges to block outbound.
 PRIVATE4=(
@@ -39,7 +48,10 @@ fail_closed() {
   iptables -P OUTPUT DROP 2>/dev/null || true
   ip6tables -P OUTPUT DROP 2>/dev/null || true
 }
-trap fail_closed ERR
+# INT/TERM as well as ERR: a signal landing between reset_chain and swap_chain (Ctrl-C during
+# postCreateCommand, a docker stop racing the run) would otherwise leave OUTPUT with policy ACCEPT
+# and no filtering chain — wide open, and reported nowhere.
+trap fail_closed ERR INT TERM
 
 # Create the staging chain, clearing any leftovers from a previous failed run.
 reset_chain() {
@@ -51,6 +63,11 @@ reset_chain() {
 # Put the freshly built chain into effect, replacing the previous generation. The new jump is
 # inserted BEFORE the old one is removed so there is never a gap, then the old chain is dropped and
 # the staging chain takes over its name.
+#
+# The final rename relies on `-E`, whose support under the nft backend has historically varied.
+# Verified working on this image's iptables v1.8.9 (nf_tables), for both iptables and ip6tables. If a
+# future base image regresses it, the rename fails, the ERR trap fires, and egress drops entirely —
+# loud rather than silent, but see the README note on recovering from a fail-closed container.
 swap_chain() {
   local ipt="$1"
   "$ipt" -I OUTPUT 1 -j "$TMP"
@@ -75,6 +92,11 @@ done
 
 # The redis sibling, narrowly. Allowing the whole compose subnet instead would also expose the
 # bridge gateway — a host interface on Linux — and every other container on that network.
+#
+# The rule pins the address resolved right now. Recreating the redis container (image bump, a
+# `docker compose up -d redis`, a network rebuild) can move it to a new address in 172.16.0.0/12,
+# which the private-range REJECT then blocks with no hint that the firewall is the cause. Re-running
+# this script (any of `dc:shell`, `dc:claude`, or a container restart) re-resolves and fixes it.
 REDIS_IPS="$(getent ahostsv4 "${REDIS_HOST}" 2>/dev/null | awk '{print $1}' | sort -u)" || REDIS_IPS=""
 if [ -n "${REDIS_IPS}" ]; then
   for ip in ${REDIS_IPS}; do
@@ -82,6 +104,9 @@ if [ -n "${REDIS_IPS}" ]; then
     iptables -A "$TMP" -d "${ip}" -p tcp --dport "${REDIS_PORT}" -j ACCEPT
   done
 else
+  # Not fatal: dc:shell/dc:claude gate on this script succeeding, so making an unreachable redis a
+  # hard error would lock you out of the container over a stopped sibling. Warn, and drop the redis
+  # clause from the final summary so it can't claim a carve-out that isn't there.
   echo "[firewall] WARNING: could not resolve ${REDIS_HOST} — the worker will not reach it" >&2
 fi
 
@@ -100,11 +125,19 @@ iptables -P OUTPUT ACCEPT     # anything the chain doesn't reject is public traf
 # the threat model (the agent can't reach out) but isn't "nothing can talk to us".
 
 # The binary existing doesn't mean ip6_tables is loaded, so probe once and reuse the answer.
+# `ip6tables -L` failing means the module is missing — it does NOT mean the container has no IPv6
+# connectivity, and the two are independent. If v6 is actually routable while we can't filter it,
+# half the address space is unprotected, so refuse to report success rather than shrug it off.
 if ip6tables -L -n >/dev/null 2>&1; then
   HAS_IP6=1
 else
   HAS_IP6=0
-  echo "[firewall] IPv6 unsupported by this kernel — skipping v6 policy"
+  if [ -n "$(ip -6 addr show scope global 2>/dev/null)" ]; then
+    echo "[firewall] ERROR: container has routable IPv6 but ip6tables is unusable — v6 egress would be unfiltered" >&2
+    fail_closed
+    exit 1
+  fi
+  echo "[firewall] IPv6 unsupported by this kernel and no routable v6 address — skipping v6 policy"
 fi
 
 if [ "${HAS_IP6}" -eq 1 ]; then
@@ -157,5 +190,23 @@ if [ "${HAS_IP6}" -eq 1 ]; then
   done
 fi
 
-trap - ERR
-echo "[firewall] OK: public egress allowed, private ranges blocked, ${REDIS_HOST}:${REDIS_PORT} permitted."
+# The rules above can all be present and correct while OUTPUT doesn't reach them — a swap that got
+# as far as removing the old jump but not to a working rename, or an external flush. Assert the jump
+# and the policy too, since those are precisely what the staging/swap machinery puts at risk.
+iptables -C OUTPUT -j "$CHAIN" 2>/dev/null \
+  || { echo "[firewall] ERROR: OUTPUT does not jump to ${CHAIN}" >&2; fail_closed; exit 1; }
+[ "$(iptables -S OUTPUT | head -1)" = "-P OUTPUT ACCEPT" ] \
+  || { echo "[firewall] ERROR: unexpected IPv4 OUTPUT policy: $(iptables -S OUTPUT | head -1)" >&2; fail_closed; exit 1; }
+if [ "${HAS_IP6}" -eq 1 ]; then
+  ip6tables -C OUTPUT -j "$CHAIN" 2>/dev/null \
+    || { echo "[firewall] ERROR: IPv6 OUTPUT does not jump to ${CHAIN}" >&2; fail_closed; exit 1; }
+  [ "$(ip6tables -S OUTPUT | head -1)" = "-P OUTPUT ACCEPT" ] \
+    || { echo "[firewall] ERROR: unexpected IPv6 OUTPUT policy: $(ip6tables -S OUTPUT | head -1)" >&2; fail_closed; exit 1; }
+fi
+
+trap - ERR INT TERM
+if [ -n "${REDIS_IPS}" ]; then
+  echo "[firewall] OK: public egress allowed, private ranges blocked, ${REDIS_HOST}:${REDIS_PORT} permitted."
+else
+  echo "[firewall] OK: public egress allowed, private ranges blocked (${REDIS_HOST} unresolved — no carve-out)."
+fi

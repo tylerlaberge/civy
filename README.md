@@ -81,7 +81,9 @@ oversight — isolation here is strong, not absolute. Mount it `:ro` in
 
 Verify the boundary at any time with `bun run dc:verify`, which asserts from inside the container
 that public egress works, the metadata address and bridge gateway are blocked, and `redis` is
-reachable only on its queue port.
+reachable only on its queue port. The blocked checks assert *how* each connection failed — a
+firewall rejection surfaces as `EHOSTUNREACH`, whereas "nothing is listening" gives a timeout or
+`ECONNREFUSED` — so they genuinely fail if the rules are missing rather than passing vacuously.
 
 A `redis` sibling service (the ingestion worker's BullMQ backend) comes up alongside the sandbox on
 the compose network, reachable as `redis://redis:6379`.
@@ -105,6 +107,17 @@ Pass Claude flags through after `--`, e.g. `bun run dc:claude -- --dangerously-s
 > Always start/restart through these scripts or "Reopen in Container". A raw `docker start` skips
 > `postStartCommand` and so **bypasses the firewall** — `dc:shell` and `dc:claude` re-run it before
 > handing over control to cover that case.
+
+Two operational notes on the firewall:
+
+- **If it fails, it fails closed** — egress is dropped entirely, including DNS. Because `dc:shell`
+  and `dc:claude` both gate on the firewall succeeding, a persistent failure locks you out through
+  the supported entrypoints; recover with a raw
+  `docker exec -it -u root civy-devcontainer-1 bash` to investigate.
+- **The `redis` carve-out pins the address resolved when the firewall ran.** If you recreate the
+  redis container on its own, it can come back on a different address and the worker's connections
+  start being rejected. Re-running the firewall (`dc:shell`, `dc:claude`, or restarting the
+  container) re-resolves it.
 
 ### Enable git push (one-time)
 

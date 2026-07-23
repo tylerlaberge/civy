@@ -2,14 +2,14 @@
 # Base image pinned by digest so a moving tag can't swap it out.
 FROM mcr.microsoft.com/devcontainers/base:bookworm@sha256:aba0f2e0730af481edf2db5582a80c0ed2591bee78ec177f7fa7a38e8f5e1105
 
-# iptables/ipset/dnsutils/iproute2/jq for init-firewall.sh; zsh/fzf shell QoL. build-essential +
-# python3 are node-gyp's toolchain for native deps that later stories pull in (e.g. better-sqlite3
-# in packages/db); without them `bun install` fails at the compile step for those packages.
+# iptables for init-firewall.sh (which otherwise uses only awk, getent, sort and curl); iproute2 for
+# the `ip route` lookups in verify.sh; jq/less for gh; zsh/fzf shell QoL. build-essential + python3
+# are node-gyp's toolchain for native deps that later stories pull in (e.g. better-sqlite3 in
+# packages/db) — python3 also backs verify.sh's errno probe. Without them `bun install` fails at the
+# compile step for those packages.
 RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
   && apt-get install -y --no-install-recommends \
     iptables \
-    ipset \
-    dnsutils \
     iproute2 \
     curl \
     unzip \
@@ -40,15 +40,20 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
 
 # gh authenticates from GH_TOKEN in the env. Source it from the same read-only host mount the git
 # credential helper uses (see gitconfig) so there's one token file, not two — and so `gh auth login`
-# never needs to run and never writes the token to container disk. Every entrypoint execs through
-# `bash -lc`, which sources /etc/profile.d, so this covers all of them; the zsh in dc:shell inherits
-# the exported var from that login bash.
-RUN printf '%s\n' \
+# never needs to run and never writes the token to container disk.
+#
+# Installed for BOTH shells: /etc/profile.d covers the `bash -lc` the dc:* scripts exec through, and
+# /etc/zsh/zshenv covers VS Code's "Reopen in Container" terminal, which starts zsh non-login and so
+# never reads /etc/profile.d. Without the zshenv half, gh is silently unauthenticated on the IDE
+# path — with a 'not logged in' error that gives no hint the token file is already mounted.
+RUN mkdir -p /etc/zsh \
+  && printf '%s\n' \
     'if [ -r /home/dev/.config/civy/gh_token ]; then' \
     '  GH_TOKEN="$(cat /home/dev/.config/civy/gh_token)"; export GH_TOKEN' \
     'fi' \
     > /etc/profile.d/gh-token.sh \
-  && chmod 0644 /etc/profile.d/gh-token.sh
+  && cat /etc/profile.d/gh-token.sh >> /etc/zsh/zshenv \
+  && chmod 0644 /etc/profile.d/gh-token.sh /etc/zsh/zshenv
 
 # Relabel the base user/group vscode -> dev (same uid/gid 1000).
 RUN usermod -l dev -d /home/dev -m vscode \
@@ -123,10 +128,8 @@ ENV SHELL=/bin/zsh
 
 # The firewall + verification scripts come last: they're the files most likely to be iterated on, and
 # copying them earlier would invalidate the proto/toolchain and Claude layers above on every edit.
-# init-firewall.sh must be root-owned so `dev` can't rewrite the one command its sudo grant allows.
-USER root
-COPY .devcontainer/init-firewall.sh /usr/local/bin/init-firewall.sh
-COPY .devcontainer/verify.sh /usr/local/bin/civy-verify
-RUN chmod 0755 /usr/local/bin/init-firewall.sh /usr/local/bin/civy-verify \
-  && chown root:root /usr/local/bin/init-firewall.sh /usr/local/bin/civy-verify
-USER dev
+# init-firewall.sh must be root-owned so `dev` can't rewrite the one command its sudo grant allows —
+# COPY without --chown already lands root:root, so --chmod alone is enough and no USER switch or
+# extra chmod/chown layer is needed.
+COPY --chmod=0755 .devcontainer/init-firewall.sh /usr/local/bin/init-firewall.sh
+COPY --chmod=0755 .devcontainer/verify.sh /usr/local/bin/civy-verify

@@ -22,7 +22,7 @@
     "dc:shell": "bun run dc exec --workspace-folder . bash -lc 'sudo /usr/local/bin/init-firewall.sh >/dev/null && exec zsh'",
     "dc:claude": "bun run dc exec --workspace-folder . bash -lc 'sudo /usr/local/bin/init-firewall.sh >/dev/null && exec claude \"$@\"' --",
     "dc:verify": "bun run dc exec --workspace-folder . bash -lc /usr/local/bin/civy-verify",
-    "dc:down": "docker compose --project-name civy -f .devcontainer/docker-compose.yml down --remove-orphans"
+    "dc:down": "docker compose -f .devcontainer/docker-compose.yml down --remove-orphans"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.0",
