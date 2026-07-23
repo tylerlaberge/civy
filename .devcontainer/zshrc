@@ -1,0 +1,13 @@
+# Interactive zsh config for the container. Chiefly: zsh honors HISTFILE but writes nothing unless
+# SAVEHIST is set, so without this the shell-history volume stays empty.
+HISTFILE=${HISTFILE:-/commandhistory/.history}
+HISTSIZE=10000
+SAVEHIST=10000
+setopt APPEND_HISTORY SHARE_HISTORY HIST_IGNORE_DUPS HIST_REDUCE_BLANKS
+
+# -i ignores insecure fpath entries rather than loading them anyway (which is what -u does). Matters
+# here because /home/dev/.claude/skills is a host bind: it isn't on fpath today, but -u would
+# pre-approve whatever ends up there later.
+autoload -Uz compinit && compinit -i
+
+PROMPT='%F{cyan}%~%f %# '

@@ -15,7 +15,14 @@
   "scripts": {
     "check": "moon check --all",
     "format": "biome format --write .",
-    "format:check": "biome format ."
+    "format:check": "biome format .",
+    "dc": "bunx @devcontainers/cli@0.87.0",
+    "dc:up": "bun run dc up --workspace-folder .",
+    "dc:rebuild": "bun run dc up --workspace-folder . --remove-existing-container --build-no-cache",
+    "dc:shell": "bun run dc exec --workspace-folder . bash -lc 'sudo /usr/local/bin/init-firewall.sh >/dev/null && exec zsh'",
+    "dc:claude": "bun run dc exec --workspace-folder . bash -lc 'sudo /usr/local/bin/init-firewall.sh >/dev/null && exec claude \"$@\"' --",
+    "dc:verify": "bun run dc exec --workspace-folder . bash -lc /usr/local/bin/civy-verify",
+    "dc:down": "docker compose -f .devcontainer/docker-compose.yml down --remove-orphans"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.0",

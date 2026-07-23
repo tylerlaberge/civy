@@ -1,0 +1,26 @@
+# Container-only git config (copied to ~/.gitconfig in the image). The host repo's remote stays
+# SSH; these rewrites push over HTTPS using the mounted token, and apply only in the container.
+
+# Repo is owned by the host UID inside the container; trust it (sandboxed, only your repo mounted).
+[safe]
+	directory = *
+
+[url "https://github.com/"]
+	insteadOf = git@github.com:
+	insteadOf = ssh://git@github.com/
+
+[core]
+	# If anything falls through to SSH, fail fast instead of hanging on a prompt.
+	sshCommand = "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10"
+
+[credential "https://github.com"]
+	# Token read at push-time from the host-mounted file. Missing/empty -> git fails fast.
+	helper = "!f() { echo username=x-access-token; echo \"password=$(cat /home/dev/.config/civy/gh_token 2>/dev/null)\"; }; f"
+
+[user]
+	# Identity for commits made inside the container. Hardcoded on purpose: this is a
+	# single-developer repo. (init-host-env.sh is portable because one developer's CLONE PATH varies
+	# across machines and the memory key derives from it — not because the container is multi-user.)
+	# If that changes, source these from the mounted ~/.config/civy dir alongside the token.
+	name = tylerlaberge
+	email = tylerlaberge@protonmail.com

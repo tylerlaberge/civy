@@ -1,0 +1,58 @@
+{
+  "name": "civy",
+  // Compose-based dev environment: the `devcontainer` service is the Claude sandbox; `redis` is the
+  // ingestion worker's BullMQ backend. See docker-compose.yml.
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "devcontainer",
+  "runServices": ["devcontainer", "redis"],
+  "remoteUser": "dev",
+  "workspaceFolder": "${localWorkspaceFolder}",
+  "containerEnv": {
+    // Claude's config lives in the container-local civy-claude-config volume (see mounts), never the
+    // host ~/.claude, so a hijacked session can't read host credentials or other repos' data.
+    "CLAUDE_CONFIG_DIR": "/home/dev/.claude",
+    // Single-developer repo (as is the git identity in gitconfig); adjust if that changes.
+    "TZ": "America/New_York",
+    // The worker reaches the redis sibling by compose service name, not localhost.
+    "REDIS_URL": "redis://redis:6379",
+    // Fail fast instead of hanging on an interactive credential prompt.
+    "GIT_TERMINAL_PROMPT": "0"
+    // GitHub push auth comes from the host-mounted file (~/.config/civy/gh_token, see mounts and
+    // gitconfig), not an env var. Keep it a fine-grained, single-repo PAT and protect `main`.
+  },
+  "mounts": [
+    // Mirror the host repo path so Claude's path-derived memory key matches the host. In compose
+    // mode the workspace bind lives here (workspaceMount is ignored); the CLI applies it to the
+    // `devcontainer` service.
+    "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind,consistency=cached",
+    // Container-local bun install cache, so downloads persist across rebuilds and never touch the
+    // host. Its mount point exists dev-owned in the image, so the volume seeds dev-owned and needs
+    // no chown — see the Dockerfile's /home/dev/.bun note.
+    "source=civy-bun-cache,target=/home/dev/.bun,type=volume",
+    "source=civy-bashhistory,target=/commandhistory,type=volume",
+    // Container-local Claude config (credentials, transcripts); persists across rebuilds, never
+    // touches host ~/.claude. Container sessions aren't visible to host /resume, and vice-versa.
+    "source=civy-claude-config,target=/home/dev/.claude,type=volume"
+    // The project-memory bind and the read-only binds live in docker-compose.yml, not here: the
+    // former needs an interpolated path key, and this CLI drops the `readonly` flag from `mounts`
+    // in compose mode. See the notes in that file.
+  ],
+  // Web (Astro) and API (NestJS) dev servers, surfaced to the host when running. Redis is
+  // intentionally NOT forwarded — nothing on the host needs it.
+  "forwardPorts": [4321, 3000],
+  // Runs on the HOST before the container is created: computes Claude's project key for THIS clone
+  // path, ensures the host memory dir exists, and writes .devcontainer/.env for compose. Array form
+  // bypasses the shell, so clone paths containing spaces work.
+  "initializeCommand": [".devcontainer/init-host-env.sh", "${localWorkspaceFolder}"],
+  // Firewall first, THEN install: package lifecycle scripts are the most third-party code this
+  // container ever runs, and they have no business doing so with unrestricted host/LAN access.
+  // Public egress is allowed either way, so the install loses nothing by waiting.
+  "postCreateCommand": "sudo /usr/local/bin/init-firewall.sh && bun install",
+  // Re-applied on every start because iptables rules don't survive a restart.
+  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": ["anthropic.claude-code"]
+    }
+  }
+}

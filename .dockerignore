@@ -1,0 +1,9 @@
+# The devcontainer build context is the repo root, but only .prototools and .devcontainer/* are ever
+# COPYed. An allowlist encodes that directly: everything is excluded, those two are added back, and a
+# new source directory can't silently start shipping to the daemon on every build.
+*
+!.prototools
+!.devcontainer
+# Re-excluded after the directory: init-host-env.sh generates this on the host (it holds the Claude
+# project key) and nothing COPYs it, so it has no business entering the build context.
+.devcontainer/.env

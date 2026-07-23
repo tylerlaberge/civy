@@ -1,0 +1,72 @@
+# Local dev stack: the Claude sandbox plus a Redis sibling (the ingestion worker's BullMQ backend).
+# Both sit on compose's default network, so the sandbox reaches redis by service name — and
+# init-firewall.sh permits exactly that address on the queue port. No ports are published to the
+# host: redis is only needed from inside the network, and the web/api dev servers are reached via
+# devcontainer.json's forwardPorts, not compose.
+#
+# Host binds that need a mechanism devcontainer.json lacks live here (see the volumes note below):
+# the read-only ones (devcontainer.json drops `readonly` in compose mode) and the memory bind (whose
+# path needs an interpolated key). The rest of the read-write mounts and env stay in devcontainer.json.
+name: civy
+
+services:
+  devcontainer:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    image: civy-claude-sandbox:latest
+    # NET_ADMIN lets init-firewall.sh manage iptables. NET_RAW must be explicitly DROPPED rather than
+    # merely left out of cap_add: it is in Docker's default capability set, so omitting it grants it.
+    # Raw/packet sockets (hand-crafted packets, ARP/ICMP spoofing, tcpdump) are not needed by iptables
+    # and nothing here uses them, so they don't belong in a container whose premise is that the agent
+    # inside is hostile. `ping` stops working; that's the trade, and curl covers the real checks.
+    cap_add:
+      - NET_ADMIN
+    cap_drop:
+      - NET_RAW
+    command: sleep infinity
+    # PID 1 is `sleep`, which doesn't reap children; long agent sessions would accumulate zombies.
+    init: true
+    # Wait for redis to pass its healthcheck so the worker's fail-fast boot connect doesn't race it.
+    depends_on:
+      redis:
+        condition: service_healthy
+    # These binds must stay here rather than in devcontainer.json's `mounts` (compose merges service
+    # volumes by target, so a duplicate there would win):
+    #   - read-only binds, because in compose mode the devcontainer CLI drops the `readonly` flag and
+    #     the mount silently comes up writable. Compose honors `:ro`.
+    #   - the memory bind, whose path embeds ${CLAUDE_PROJECT_KEY} — computed per clone path by
+    #     init-host-env.sh and delivered via the generated .env, which compose loads from the dir of
+    #     the first `-f` file.
+    volumes:
+      # Host skills, so sandboxed Claude matches host behavior — read-only.
+      - ${HOME}/.claude/skills:/home/dev/.claude/skills:ro
+      # To also share global user instructions, create ~/.claude/CLAUDE.md then uncomment:
+      #   - ${HOME}/.claude/CLAUDE.md:/home/dev/.claude/CLAUDE.md:ro
+      # GitHub push token dir (see README "Enable git push") — read-only.
+      - ${HOME}/.config/civy:/home/dev/.config/civy:ro
+      # This repo's project memory — read/write. Key is generated; see the note above.
+      #
+      # RESIDUAL RISK, accepted deliberately: this is the one mount that isn't one-directional. The
+      # host's Claude sessions for this project auto-load these files, so a compromised container
+      # could write instructions here and influence the host agent, which runs outside this
+      # firewall. Read/write is the point (memories written in the container sync home); the README
+      # security section states this rather than claiming absolute isolation.
+      - ${HOME}/.claude/projects/${CLAUDE_PROJECT_KEY:-unset}/memory:/home/dev/.claude/projects/${CLAUDE_PROJECT_KEY:-unset}/memory
+
+  # BullMQ's Redis backend for the ingestion worker. Digest-pinned to match the base image's supply
+  # chain stance. Reachable only on the compose network as `redis:6379`.
+  redis:
+    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+    # AOF only: `--save ""` clears the compiled-in RDB snapshot points, which stay active otherwise.
+    command: ["redis-server", "--appendonly", "yes", "--save", ""]
+    volumes:
+      - civy-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  civy-redis-data:
