@@ -22,6 +22,16 @@ IFS=$'\n\t'
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
+# Serialize the whole run. The staging chain has a fixed name, so two concurrent invocations —
+# postStartCommand racing a dc:shell, or two terminals — share it and interleave their rules; the
+# loser then hits "File exists", fires the ERR trap, and drops egress on top of the winner's freshly
+# applied policy. Held for the script's lifetime via fd 9, released when the process exits.
+#
+# Deliberately BEFORE the trap is installed: nothing has been modified yet at this point, so failing
+# to take the lock should exit quietly rather than drop egress.
+exec 9>/run/civy-firewall.lock
+flock -x 9
+
 CHAIN=CIVY_EGRESS
 TMP=CIVY_EGRESS_NEW
 # Not configurable via the environment: every invocation is `sudo init-firewall.sh`, and sudo's
@@ -87,6 +97,14 @@ swap_chain() {
   "$ipt" -E "$TMP" "$CHAIN"
 }
 
+# Resolve redis BEFORE touching any chain. reset_chain deletes the jump that carries the DNS ACCEPT
+# rules, so on a run recovering from a fail_closed state (policy still DROP) a lookup after that point
+# has no reachable resolver: it silently yields no address, the carve-out is dropped, and the run
+# still exits 0 with a green OK line. Resolving here means it happens while whatever policy is
+# currently in force — including a wide-open first run — is still intact.
+echo "[firewall] resolving ${REDIS_HOST}..."
+REDIS_IPS="$(getent ahostsv4 "${REDIS_HOST}" 2>/dev/null | awk '{print $1}' | sort -u)" || REDIS_IPS=""
+
 echo "[firewall] building IPv4 policy..."
 reset_chain iptables
 iptables -A "$TMP" -o lo -j ACCEPT
@@ -103,11 +121,10 @@ done
 # The redis sibling, narrowly. Allowing the whole compose subnet instead would also expose the
 # bridge gateway — a host interface on Linux — and every other container on that network.
 #
-# The rule pins the address resolved right now. Recreating the redis container (image bump, a
+# The rule pins the address resolved above. Recreating the redis container (image bump, a
 # `docker compose up -d redis`, a network rebuild) can move it to a new address in 172.16.0.0/12,
 # which the private-range REJECT then blocks with no hint that the firewall is the cause. Re-running
 # this script (any of `dc:shell`, `dc:claude`, or a container restart) re-resolves and fixes it.
-REDIS_IPS="$(getent ahostsv4 "${REDIS_HOST}" 2>/dev/null | awk '{print $1}' | sort -u)" || REDIS_IPS=""
 if [ -n "${REDIS_IPS}" ]; then
   for ip in ${REDIS_IPS}; do
     echo "[firewall] allowing ${REDIS_HOST} at ${ip}:${REDIS_PORT}"
@@ -145,7 +162,6 @@ else
   if [ -n "$(ip -6 addr show scope global 2>/dev/null)" ]; then
     echo "[firewall] ERROR: container has routable IPv6 but ip6tables is unusable — v6 egress would be unfiltered" >&2
     fail_closed
-    exit 1
   fi
   echo "[firewall] IPv6 unsupported by this kernel and no routable v6 address — skipping v6 policy"
 fi
@@ -191,12 +207,12 @@ fi
 # that would still pass with the whole block loop deleted. `iptables -C` tests what we care about.
 for cidr in "${PRIVATE4[@]}"; do
   iptables -C "$CHAIN" -d "${cidr}" -j REJECT --reject-with icmp-admin-prohibited 2>/dev/null \
-    || { echo "[firewall] ERROR: missing IPv4 block for ${cidr}" >&2; fail_closed; exit 1; }
+    || { echo "[firewall] ERROR: missing IPv4 block for ${cidr}" >&2; fail_closed; }
 done
 if [ "${HAS_IP6}" -eq 1 ]; then
   for cidr in "${PRIVATE6[@]}"; do
     ip6tables -C "$CHAIN" -d "${cidr}" -j REJECT 2>/dev/null \
-      || { echo "[firewall] ERROR: missing IPv6 block for ${cidr}" >&2; fail_closed; exit 1; }
+      || { echo "[firewall] ERROR: missing IPv6 block for ${cidr}" >&2; fail_closed; }
   done
 fi
 
@@ -204,14 +220,14 @@ fi
 # as far as removing the old jump but not to a working rename, or an external flush. Assert the jump
 # and the policy too, since those are precisely what the staging/swap machinery puts at risk.
 iptables -C OUTPUT -j "$CHAIN" 2>/dev/null \
-  || { echo "[firewall] ERROR: OUTPUT does not jump to ${CHAIN}" >&2; fail_closed; exit 1; }
+  || { echo "[firewall] ERROR: OUTPUT does not jump to ${CHAIN}" >&2; fail_closed; }
 [ "$(iptables -S OUTPUT | head -1)" = "-P OUTPUT ACCEPT" ] \
-  || { echo "[firewall] ERROR: unexpected IPv4 OUTPUT policy: $(iptables -S OUTPUT | head -1)" >&2; fail_closed; exit 1; }
+  || { echo "[firewall] ERROR: unexpected IPv4 OUTPUT policy: $(iptables -S OUTPUT | head -1)" >&2; fail_closed; }
 if [ "${HAS_IP6}" -eq 1 ]; then
   ip6tables -C OUTPUT -j "$CHAIN" 2>/dev/null \
-    || { echo "[firewall] ERROR: IPv6 OUTPUT does not jump to ${CHAIN}" >&2; fail_closed; exit 1; }
+    || { echo "[firewall] ERROR: IPv6 OUTPUT does not jump to ${CHAIN}" >&2; fail_closed; }
   [ "$(ip6tables -S OUTPUT | head -1)" = "-P OUTPUT ACCEPT" ] \
-    || { echo "[firewall] ERROR: unexpected IPv6 OUTPUT policy: $(ip6tables -S OUTPUT | head -1)" >&2; fail_closed; exit 1; }
+    || { echo "[firewall] ERROR: unexpected IPv6 OUTPUT policy: $(ip6tables -S OUTPUT | head -1)" >&2; fail_closed; }
 fi
 
 trap - ERR INT TERM
