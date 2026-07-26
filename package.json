@@ -21,6 +21,7 @@
     "dc:rebuild": "bun run dc up --workspace-folder . --remove-existing-container --build-no-cache",
     "dc:shell": "bun run dc exec --workspace-folder . bash -lc 'sudo /usr/local/bin/init-firewall.sh >/dev/null && exec zsh'",
     "dc:claude": "bun run dc exec --workspace-folder . bash -lc 'sudo /usr/local/bin/init-firewall.sh >/dev/null && exec claude \"$@\"' --",
+    "dc:remote": "caffeinate -is bun run dc exec --workspace-folder . bash -lc 'sudo /usr/local/bin/init-firewall.sh >/dev/null && exec claude --remote-control \"$@\"' --",
     "dc:verify": "bun run dc exec --workspace-folder . bash -lc /usr/local/bin/civy-verify",
     "dc:down": "docker compose -f .devcontainer/docker-compose.yml down --remove-orphans"
   },

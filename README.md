@@ -97,12 +97,20 @@ your IDE's "Reopen in Container"):
 bun run dc:up        # build (first run) + start; applies the firewall, then bun install
 bun run dc:shell     # interactive zsh inside the container
 bun run dc:claude    # launch Claude Code inside the container
+bun run dc:remote    # launch Claude in Remote Control mode to drive from your phone
 bun run dc:verify    # assert the network boundary holds (see above)
 bun run dc:rebuild   # rebuild the image from scratch (after changing .devcontainer/*)
 bun run dc:down      # stop + remove the container (image, login, caches, history kept in volumes)
 ```
 
 Pass Claude flags through after `--`, e.g. `bun run dc:claude -- --dangerously-skip-permissions`.
+
+**Driving from mobile.** `dc:remote` launches Claude inside the sandbox with Remote Control enabled,
+then pair the session from the Claude mobile app to drive it from your phone — the whole point of the
+remote-first setup. It wraps the launch in `caffeinate -is` so the Mac doesn't sleep out from under a
+session you're steering remotely (`-i` blocks idle sleep even on battery; `-s` blocks system sleep on
+AC). Like `dc:shell` and `dc:claude`, it re-applies the firewall before handing over. `caffeinate` is
+macOS-only, so this is the one script that assumes a macOS host; the rest are host-agnostic.
 
 > Always start/restart through these scripts or "Reopen in Container". A raw `docker start` skips
 > `postStartCommand` and so **bypasses the firewall** — `dc:shell` and `dc:claude` re-run it before

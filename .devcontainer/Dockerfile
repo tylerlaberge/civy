@@ -59,17 +59,21 @@ RUN mkdir -p /etc/zsh \
 RUN usermod -l dev -d /home/dev -m vscode \
   && groupmod -n dev vscode
 
-# Bake the firewall script at a fixed root-owned path and scope sudo to only it.
-# Root ownership stops `dev` rewriting the script to regain arbitrary root, so this is the ONLY
-# command dev may run as root. Don't add a second grant without re-reading that sentence: a
-# `chown` grant here would be a full root escalation: sudoers matches argv literally rather than a
-# resolved path, and chown follows symlinks, so a relative argv plus
-# `ln -s /usr/local/bin/init-firewall.sh target` would hand dev the script. The cache volume seeds
-# dev-owned instead (see /home/dev/.bun below), so no such grant is needed.
-# The script itself is COPYed near the end of this file, to keep it out of the cached layers.
-RUN echo 'dev ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh' \
-  > /etc/sudoers.d/init-firewall \
-  && chmod 0440 /etc/sudoers.d/init-firewall \
+# Bake the root-run scripts at fixed root-owned paths and scope sudo to exactly those two.
+# Root ownership stops `dev` rewriting a script to regain arbitrary root, so these are the ONLY
+# commands dev may run as root. Both are absolute paths to root-owned files; a grant on any command
+# that takes dev-supplied arguments would be a different thing entirely. In particular a bare `chown`
+# grant would be a full root escalation: sudoers matches argv literally rather than a resolved path,
+# and chown follows symlinks, so a relative argv plus `ln -s /usr/local/bin/init-firewall.sh target`
+# would hand dev the script. init-claude-dirs.sh is a grant on a fixed script rather than on chown,
+# and it never dereferences — see its header. The cache volume seeds dev-owned instead (see
+# /home/dev/.bun below), so it needs no grant at all.
+# The scripts themselves are COPYed near the end of this file, to keep them out of the cached layers.
+RUN printf '%s\n' \
+  'dev ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh' \
+  'dev ALL=(root) NOPASSWD: /usr/local/bin/init-claude-dirs.sh' \
+  > /etc/sudoers.d/sandbox-grants \
+  && chmod 0440 /etc/sudoers.d/sandbox-grants \
   # Revoke the base image's blanket NOPASSWD:ALL so the firewall can't be torn down from inside.
   && rm -f /etc/sudoers.d/vscode
 
@@ -126,10 +130,11 @@ COPY --chown=dev:dev .devcontainer/claude-settings.json /home/dev/.claude/settin
 # Default to zsh for interactive shells.
 ENV SHELL=/bin/zsh
 
-# The firewall + verification scripts come last: they're the files most likely to be iterated on, and
+# The root-run + verification scripts come last: they're the files most likely to be iterated on, and
 # copying them earlier would invalidate the proto/toolchain and Claude layers above on every edit.
-# init-firewall.sh must be root-owned so `dev` can't rewrite the one command its sudo grant allows —
-# COPY without --chown already lands root:root, so --chmod alone is enough and no USER switch or
-# extra chmod/chown layer is needed.
+# The two sudo-granted scripts must be root-owned so `dev` can't rewrite the only commands it may run
+# as root — COPY without --chown already lands root:root, so --chmod alone is enough and no USER
+# switch or extra chmod/chown layer is needed.
 COPY --chmod=0755 .devcontainer/init-firewall.sh /usr/local/bin/init-firewall.sh
+COPY --chmod=0755 .devcontainer/init-claude-dirs.sh /usr/local/bin/init-claude-dirs.sh
 COPY --chmod=0755 .devcontainer/verify.sh /usr/local/bin/civy-verify

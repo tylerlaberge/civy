@@ -48,8 +48,11 @@
   // container ever runs, and they have no business doing so with unrestricted host/LAN access.
   // Public egress is allowed either way, so the install loses nothing by waiting.
   "postCreateCommand": "sudo /usr/local/bin/init-firewall.sh && bun install",
-  // Re-applied on every start because iptables rules don't survive a restart.
-  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
+  // Firewall re-applied on every start because iptables rules don't survive a restart.
+  // init-claude-dirs.sh hands /home/dev/.claude/projects back to dev: Docker creates the nested
+  // memory-bind mount points root-owned at container-create time, which otherwise leaves Claude
+  // unable to write session transcripts. See the script's header.
+  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh && sudo /usr/local/bin/init-claude-dirs.sh",
   "customizations": {
     "vscode": {
       "extensions": ["anthropic.claude-code"]
