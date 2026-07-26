@@ -13,6 +13,7 @@
     "node": "24.18.0"
   },
   "scripts": {
+    "build": "moon run :build",
     "check": "moon check --all",
     "format": "biome format --write .",
     "format:check": "biome format .",
