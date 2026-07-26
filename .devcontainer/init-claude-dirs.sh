@@ -13,11 +13,20 @@
 # Run from devcontainer.json's postStartCommand via the sudo grant in the Dockerfile. It only ever
 # grants ownership TO dev, on two fixed absolute paths inside dev's own home.
 #
-# Every chown here is `-h` (never dereference). That is load-bearing, not stylistic: dev can replace
-# any of these paths with a symlink between our checking and our chowning, and a dereferencing chown
-# would then hand dev ownership of whatever the link points at — /etc, /usr/local/bin — which is a
-# root escalation out of the sandbox. With -h the worst case is that dev owns a symlink it created.
-# `find` is invoked with the default -P, so a symlinked start point is reported, not descended.
+# This runs as root against paths under dev's own home, so it treats dev as hostile (the sandbox's
+# whole premise) and defends the two ways dev could turn a chown into a root escalation:
+#
+#   Symlinks. dev can rename `projects` (a same-dir rename succeeds even with the memory mountpoint
+#   under it) and drop a symlink in its place, then do the same for a depth-1 child. So every chown
+#   is `-h` (never dereference the link), and the `find` runs with the default -P, which reports a
+#   symlinked start point rather than descending it — a `projects -> /etc` swap leaves /etc untouched
+#   and at worst chowns a symlink dev already owns. A dangling symlink makes `mkdir -p` fail, which
+#   under `set -e` aborts before any chown: fail closed.
+#
+#   Hardlinks. `-h` does NOT protect these — a hardlink IS the inode, so a chown of a hardlink to a
+#   root-owned file (e.g. the sudoers drop-in) would hand dev that file. The `-type d` below is what
+#   rules them out: a hardlink to a root file is -type f and never matches, independent of the
+#   kernel's fs.protected_hardlinks (which also blocks creating such a link, but isn't relied on here).
 set -euo pipefail
 
 claude_dir=/home/dev/.claude
@@ -27,7 +36,7 @@ projects_dir="${claude_dir}/projects"
 mkdir -p "${projects_dir}"
 chown -h dev:dev "${projects_dir}"
 
-# The per-project dirs (one per workspace path Claude has seen). Depth 1 only — below them sit the
-# transcripts, which dev already owns, and the memory bind, whose ownership comes from the host and
-# must not be rewritten.
-find "${projects_dir}" -mindepth 1 -maxdepth 1 -exec chown -h dev:dev {} +
+# The per-project dirs (one per workspace path Claude has seen). Depth 1, directories only — below
+# them sit the transcripts, which dev already owns, and the memory bind, whose ownership comes from
+# the host and must not be rewritten. `-type d` also excludes any planted symlink/hardlink (see above).
+find "${projects_dir}" -mindepth 1 -maxdepth 1 -type d -exec chown -h dev:dev {} +

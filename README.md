@@ -109,7 +109,8 @@ Pass Claude flags through after `--`, e.g. `bun run dc:claude -- --dangerously-s
 then pair the session from the Claude mobile app to drive it from your phone — the whole point of the
 remote-first setup. It wraps the launch in `caffeinate -is` so the Mac doesn't sleep out from under a
 session you're steering remotely (`-i` blocks idle sleep even on battery; `-s` blocks system sleep on
-AC). Like `dc:shell` and `dc:claude`, it re-applies the firewall before handing over.
+AC). Like `dc:shell` and `dc:claude`, it re-applies the firewall before handing over. `caffeinate` is
+macOS-only, so this is the one script that assumes a macOS host; the rest are host-agnostic.
 
 > Always start/restart through these scripts or "Reopen in Container". A raw `docker start` skips
 > `postStartCommand` and so **bypasses the firewall** — `dc:shell` and `dc:claude` re-run it before

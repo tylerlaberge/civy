@@ -72,8 +72,8 @@ RUN usermod -l dev -d /home/dev -m vscode \
 RUN printf '%s\n' \
   'dev ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh' \
   'dev ALL=(root) NOPASSWD: /usr/local/bin/init-claude-dirs.sh' \
-  > /etc/sudoers.d/init-firewall \
-  && chmod 0440 /etc/sudoers.d/init-firewall \
+  > /etc/sudoers.d/sandbox-grants \
+  && chmod 0440 /etc/sudoers.d/sandbox-grants \
   # Revoke the base image's blanket NOPASSWD:ALL so the firewall can't be torn down from inside.
   && rm -f /etc/sudoers.d/vscode
 
